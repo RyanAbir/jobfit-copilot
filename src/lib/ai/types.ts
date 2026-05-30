@@ -57,6 +57,18 @@ export type JobAnalysisInput = {
   jobPostText: string;
 };
 
+export type ExtractedJobDetails = {
+  jobTitle: string;
+  companyName: string;
+  sourceUrl: string;
+  workType: string;
+  salaryRange: string;
+  jobPostText: string;
+  location: string;
+  experienceLevel: string;
+  confidenceNotes: string;
+};
+
 export type CandidateProfileForAnalysis = {
   fullName: string;
   targetRole: string;

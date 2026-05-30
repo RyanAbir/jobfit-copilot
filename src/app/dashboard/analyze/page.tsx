@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import AnalyzeForm from "@/components/analyze/analyze-form";
-import { submitAnalyzeFormAction } from "@/app/dashboard/analyze/actions";
+import {
+  extractJobDetailsAction,
+  submitAnalyzeFormAction,
+} from "@/app/dashboard/analyze/actions";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 
 export default async function AnalyzePage() {
@@ -33,7 +36,11 @@ export default async function AnalyzePage() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 sm:p-6">
-        <AnalyzeForm hasProfile={hasProfile} action={submitAnalyzeFormAction} />
+        <AnalyzeForm
+          hasProfile={hasProfile}
+          action={submitAnalyzeFormAction}
+          extractionAction={extractJobDetailsAction}
+        />
       </div>
     </section>
   );

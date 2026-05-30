@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useMemo } from "react";
+import { useActionState, useMemo, useState } from "react";
 import {
   initialAnalyzeFormState,
+  initialJobExtractionFormState,
   type AnalyzeFormState,
+  type JobExtractionFormState,
 } from "@/app/dashboard/analyze/form-state";
 import type { JobFitAnalysis } from "@/lib/ai/types";
 
@@ -14,6 +16,10 @@ type AnalyzeFormProps = {
     prevState: AnalyzeFormState,
     formData: FormData,
   ) => Promise<AnalyzeFormState>;
+  extractionAction: (
+    prevState: JobExtractionFormState,
+    formData: FormData,
+  ) => Promise<JobExtractionFormState>;
 };
 
 const workTypeOptions = ["Remote", "Hybrid", "On-site"];
@@ -136,11 +142,70 @@ function ResumeKeywordSection({
   );
 }
 
-export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
+type AnalyzeFormValues = {
+  jobTitle: string;
+  companyName: string;
+  sourceUrl: string;
+  workType: string;
+  salaryRange: string;
+  jobPostText: string;
+};
+
+const initialFormValues: AnalyzeFormValues = {
+  jobTitle: "",
+  companyName: "",
+  sourceUrl: "",
+  workType: "",
+  salaryRange: "",
+  jobPostText: "",
+};
+
+function normalizeWorkType(value: string): string {
+  return workTypeOptions.includes(value) ? value : "";
+}
+
+export default function AnalyzeForm({
+  hasProfile,
+  action,
+  extractionAction,
+}: AnalyzeFormProps) {
+  const [formValues, setFormValues] =
+    useState<AnalyzeFormValues>(initialFormValues);
   const [state, formAction, pending] = useActionState(
     action,
     initialAnalyzeFormState,
   );
+
+  async function handleExtractionAction(
+    prevState: JobExtractionFormState,
+    formData: FormData,
+  ): Promise<JobExtractionFormState> {
+    const nextState = await extractionAction(prevState, formData);
+
+    if (nextState.status === "success" && nextState.details) {
+      const details = nextState.details;
+      setFormValues({
+        jobTitle: details.jobTitle,
+        companyName: details.companyName,
+        sourceUrl: details.sourceUrl,
+        workType: normalizeWorkType(details.workType),
+        salaryRange: details.salaryRange,
+        jobPostText: details.jobPostText,
+      });
+    }
+
+    return nextState;
+  }
+
+  const [extractionState, extractionFormAction, extractionPending] =
+    useActionState(handleExtractionAction, initialJobExtractionFormState);
+
+  function updateField(field: keyof AnalyzeFormValues, value: string): void {
+    setFormValues((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
 
   const submitLabel = useMemo(() => {
     if (!hasProfile) {
@@ -185,6 +250,91 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
         </p>
       ) : null}
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <div>
+          <h4 className="text-base font-semibold text-slate-950">
+            Add job post
+          </h4>
+          <p className="mt-1 text-sm text-slate-600">
+            Paste a job post or upload a screenshot. JobFit will extract the key
+            details for you.
+          </p>
+        </div>
+
+        {extractionState.status === "error" && extractionState.message ? (
+          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm text-rose-700">
+            {extractionState.message}
+          </p>
+        ) : null}
+
+        {extractionState.status === "success" && extractionState.message ? (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm text-emerald-700">
+            <p>{extractionState.message}</p>
+            {extractionState.details?.confidenceNotes ? (
+              <p className="mt-1 text-xs text-emerald-800">
+                {extractionState.details.confidenceNotes}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <form action={extractionFormAction} className="mt-4 space-y-4">
+          <div className="space-y-1.5">
+            <label
+              htmlFor="jobTextInput"
+              className="text-sm font-medium text-slate-700"
+            >
+              Paste job post
+            </label>
+            <textarea
+              id="jobTextInput"
+              name="jobTextInput"
+              rows={7}
+              className={getInputClass(
+                Boolean(extractionState.fieldErrors?.jobTextInput),
+              )}
+              placeholder="Paste raw job post text here..."
+            />
+            {extractionState.fieldErrors?.jobTextInput ? (
+              <p className="text-xs text-rose-700">
+                {extractionState.fieldErrors.jobTextInput}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="jobImage"
+              className="text-sm font-medium text-slate-700"
+            >
+              Upload screenshot
+            </label>
+            <input
+              id="jobImage"
+              name="jobImage"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className={getInputClass(
+                Boolean(extractionState.fieldErrors?.jobImage),
+              )}
+            />
+            {extractionState.fieldErrors?.jobImage ? (
+              <p className="text-xs text-rose-700">
+                {extractionState.fieldErrors.jobImage}
+              </p>
+            ) : null}
+          </div>
+
+          <button
+            type="submit"
+            disabled={extractionPending}
+            className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {extractionPending ? "Extracting details..." : "Extract job details"}
+          </button>
+        </form>
+      </section>
+
       <form action={formAction} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -199,6 +349,8 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
               name="job_title"
               disabled={!hasProfile}
               className={getInputClass(false)}
+              value={formValues.jobTitle}
+              onChange={(event) => updateField("jobTitle", event.target.value)}
               placeholder="Full-Stack Developer"
             />
           </div>
@@ -215,6 +367,10 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
               name="company_name"
               disabled={!hasProfile}
               className={getInputClass(false)}
+              value={formValues.companyName}
+              onChange={(event) =>
+                updateField("companyName", event.target.value)
+              }
               placeholder="Acme Inc."
             />
           </div>
@@ -230,6 +386,8 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
             type="url"
             disabled={!hasProfile}
             className={getInputClass(Boolean(state.fieldErrors?.source_url))}
+            value={formValues.sourceUrl}
+            onChange={(event) => updateField("sourceUrl", event.target.value)}
             placeholder="https://example.com/job-post"
           />
           {state.fieldErrors?.source_url ? (
@@ -247,7 +405,8 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
               name="work_type"
               disabled={!hasProfile}
               className={getInputClass(false)}
-              defaultValue=""
+              value={formValues.workType}
+              onChange={(event) => updateField("workType", event.target.value)}
             >
               <option value="">Select work type (optional)</option>
               {workTypeOptions.map((option) => (
@@ -270,6 +429,10 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
               name="salary_range"
               disabled={!hasProfile}
               className={getInputClass(false)}
+              value={formValues.salaryRange}
+              onChange={(event) =>
+                updateField("salaryRange", event.target.value)
+              }
               placeholder="$1000 - $1500 / month"
             />
           </div>
@@ -289,6 +452,10 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
             rows={10}
             disabled={!hasProfile}
             className={getInputClass(Boolean(state.fieldErrors?.job_post_text))}
+            value={formValues.jobPostText}
+            onChange={(event) =>
+              updateField("jobPostText", event.target.value)
+            }
             placeholder="Paste the full job description here..."
           />
           {state.fieldErrors?.job_post_text ? (

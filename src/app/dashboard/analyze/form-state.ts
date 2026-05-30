@@ -1,6 +1,10 @@
-import type { JobFitAnalysis } from "@/lib/ai/types";
+import type { ExtractedJobDetails, JobFitAnalysis } from "@/lib/ai/types";
 
-export type AnalyzeFieldName = "source_url" | "job_post_text";
+export type AnalyzeFieldName =
+  | "source_url"
+  | "job_post_text"
+  | "jobTextInput"
+  | "jobImage";
 
 export type AnalyzeFormState = {
   status: "idle" | "success" | "error";
@@ -24,6 +28,18 @@ export type AnalyzeFormState = {
 };
 
 export const initialAnalyzeFormState: AnalyzeFormState = {
+  status: "idle",
+  message: "",
+};
+
+export type JobExtractionFormState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  fieldErrors?: Partial<Record<AnalyzeFieldName, string>>;
+  details?: ExtractedJobDetails;
+};
+
+export const initialJobExtractionFormState: JobExtractionFormState = {
   status: "idle",
   message: "",
 };

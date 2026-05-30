@@ -1,7 +1,15 @@
 "use server";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import type { AnalyzeFormState } from "@/app/dashboard/analyze/form-state";
+import type {
+  AnalyzeFormState,
+  JobExtractionFormState,
+} from "@/app/dashboard/analyze/form-state";
+import {
+  extractJobDetailsFromImage,
+  extractJobDetailsFromText,
+  InvalidJobExtractionError,
+} from "@/lib/ai/job-extraction";
 import {
   analyzeJobWithGemini,
   InvalidAiJsonError,
@@ -9,6 +17,13 @@ import {
 } from "@/lib/ai/job-analysis";
 import type { CandidateProfileForAnalysis, JobFitAnalysis } from "@/lib/ai/types";
 import { getGeminiModelName } from "@/lib/ai/gemini";
+
+const MAX_JOB_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+const allowedJobImageMimeTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 
 function getTextValue(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -37,6 +52,91 @@ function toResumeKeywordsArray(analysis: JobFitAnalysis): string[] {
   ];
 
   return Array.from(new Set(groupedKeywords.filter(Boolean)));
+}
+
+function getOptionalFile(formData: FormData, key: string): File | null {
+  const value = formData.get(key);
+
+  if (!(value instanceof File) || value.size === 0) {
+    return null;
+  }
+
+  return value;
+}
+
+export async function extractJobDetailsAction(
+  _prevState: JobExtractionFormState,
+  formData: FormData,
+): Promise<JobExtractionFormState> {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return {
+      status: "error",
+      message: "You must be signed in to continue.",
+    };
+  }
+
+  const jobTextInput = getTextValue(formData, "jobTextInput");
+  const jobImage = getOptionalFile(formData, "jobImage");
+  const fieldErrors: JobExtractionFormState["fieldErrors"] = {};
+
+  if (!jobTextInput && !jobImage) {
+    return {
+      status: "error",
+      message: "Paste a job post or upload a screenshot first.",
+      fieldErrors: {
+        jobTextInput: "Paste a job post or upload a screenshot first.",
+      },
+    };
+  }
+
+  if (jobImage && !allowedJobImageMimeTypes.has(jobImage.type)) {
+    fieldErrors.jobImage = "Upload a PNG, JPG, JPEG, or WebP image.";
+  }
+
+  if (jobImage && jobImage.size > MAX_JOB_IMAGE_SIZE_BYTES) {
+    fieldErrors.jobImage = "Upload an image smaller than 5MB.";
+  }
+
+  if (fieldErrors.jobImage) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted upload field.",
+      fieldErrors,
+    };
+  }
+
+  try {
+    // Pasted text wins when both inputs are provided because it is usually cleaner
+    // than OCR from a screenshot and avoids sending duplicate job-post content.
+    const details = jobTextInput
+      ? await extractJobDetailsFromText(jobTextInput)
+      : await extractJobDetailsFromImage({
+          imageBase64: Buffer.from(await jobImage!.arrayBuffer()).toString(
+            "base64",
+          ),
+          mimeType: jobImage!.type,
+        });
+
+    return {
+      status: "success",
+      message: "Job details extracted. Review and edit the fields before analysis.",
+      details,
+    };
+  } catch (error) {
+    if (error instanceof InvalidJobExtractionError) {
+      return {
+        status: "error",
+        message: error.message,
+      };
+    }
+
+    return {
+      status: "error",
+      message: "Could not extract job details. Please paste the job post manually.",
+    };
+  }
 }
 
 export async function submitAnalyzeFormAction(
