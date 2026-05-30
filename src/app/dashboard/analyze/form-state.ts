@@ -1,3 +1,5 @@
+import type { JobFitAnalysis } from "@/lib/ai/types";
+
 export type AnalyzeFieldName = "source_url" | "job_post_text";
 
 export type AnalyzeFormState = {
@@ -12,6 +14,8 @@ export type AnalyzeFormState = {
     salary_range: string;
     job_post_text: string;
   };
+  analysis?: JobFitAnalysis;
+  model?: string;
 };
 
 export const initialAnalyzeFormState: AnalyzeFormState = {

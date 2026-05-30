@@ -6,6 +6,7 @@ import {
   initialAnalyzeFormState,
   type AnalyzeFormState,
 } from "@/app/dashboard/analyze/form-state";
+import type { JobFitAnalysis } from "@/lib/ai/types";
 
 type AnalyzeFormProps = {
   hasProfile: boolean;
@@ -25,6 +26,116 @@ function getInputClass(hasError: boolean): string {
   }`;
 }
 
+function ListSection({
+  title,
+  items,
+  emptyLabel = "None",
+  className = "",
+}: {
+  title: string;
+  items: string[];
+  emptyLabel?: string;
+  className?: string;
+}) {
+  return (
+    <section className={`rounded-2xl border border-slate-200 bg-white p-4 ${className}`}>
+      <h5 className="text-sm font-semibold text-slate-900">{title}</h5>
+      {items.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500">{emptyLabel}</p>
+      ) : (
+        <ul className="mt-2 grid gap-2">
+          {items.map((item, index) => (
+            <li
+              key={`${title}-${item}-${index}`}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+            >
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SkillsBadgeSection({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  tone: "match" | "partial" | "missing";
+}) {
+  const toneClass =
+    tone === "match"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : tone === "partial"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-rose-200 bg-rose-50 text-rose-800";
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <h5 className="text-sm font-semibold text-slate-900">{title}</h5>
+      {items.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500">None</p>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {items.map((item, index) => (
+            <span
+              key={`${title}-${item}-${index}`}
+              className={`rounded-full border px-2.5 py-1 text-xs font-medium ${toneClass}`}
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ResumeKeywordSection({
+  analysis,
+}: {
+  analysis: JobFitAnalysis;
+}) {
+  const groups = [
+    { key: "frontend", label: "Frontend" },
+    { key: "backend", label: "Backend" },
+    { key: "database", label: "Database" },
+    { key: "authentication", label: "Authentication" },
+    { key: "payment", label: "Payment" },
+    { key: "deployment", label: "Deployment" },
+    { key: "testing", label: "Testing" },
+    { key: "softSkills", label: "Soft skills" },
+  ] as const;
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <h5 className="text-sm font-semibold text-slate-900">Resume keywords</h5>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {groups.map((group) => {
+          const values = analysis.resumeKeywordSuggestions[group.key];
+
+          return (
+            <div key={group.key} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                {group.label}
+              </p>
+              {values.length === 0 ? (
+                <p className="mt-1 text-xs text-slate-500">No suggestions</p>
+              ) : (
+                <p className="mt-1 text-sm text-slate-700">{values.join(", ")}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
   const [state, formAction, pending] = useActionState(
     action,
@@ -42,6 +153,8 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
 
     return "Analyze job fit";
   }, [hasProfile, pending]);
+
+  const analysis = state.analysis;
 
   return (
     <div className="space-y-6">
@@ -192,44 +305,115 @@ export default function AnalyzeForm({ hasProfile, action }: AnalyzeFormProps) {
         </button>
       </form>
 
-      {state.status === "success" && state.submitted ? (
+      {state.status === "success" && state.submitted && analysis ? (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
-          <h4 className="text-lg font-semibold text-slate-900">
-            Submitted Preview
-          </h4>
-          <p className="text-sm text-slate-600">
-            AI analysis will be added in the next step.
-          </p>
+          <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Fit score
+              </p>
+              <div className="mt-2 flex items-end gap-3">
+                <p className="text-4xl font-bold tracking-tight text-slate-950">
+                  {analysis.finalScore}
+                </p>
+                <p className="pb-1 text-sm font-semibold text-blue-700">
+                  {analysis.matchLabel}
+                </p>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">{analysis.scoreExplanation}</p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <p className="text-xs text-slate-700">
+                  Technical: {analysis.scoreBreakdown.technicalSkillMatch}/40
+                </p>
+                <p className="text-xs text-slate-700">
+                  Projects: {analysis.scoreBreakdown.projectRelevance}/25
+                </p>
+                <p className="text-xs text-slate-700">
+                  Experience: {analysis.scoreBreakdown.experienceMatch}/15
+                </p>
+                <p className="text-xs text-slate-700">
+                  Location/work mode: {analysis.scoreBreakdown.locationWorkModeMatch}/10
+                </p>
+                <p className="text-xs text-slate-700 sm:col-span-2">
+                  Resume keywords: {analysis.scoreBreakdown.resumeKeywordMatch}/10
+                </p>
+              </div>
+            </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Job title:</span>{" "}
-              {state.submitted.job_title || "Not provided"}
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Company:</span>{" "}
-              {state.submitted.company_name || "Not provided"}
-            </p>
-            <p className="text-sm text-slate-700 break-all">
-              <span className="font-semibold">Source URL:</span>{" "}
-              {state.submitted.source_url || "Not provided"}
-            </p>
-            <p className="text-sm text-slate-700">
-              <span className="font-semibold">Work type:</span>{" "}
-              {state.submitted.work_type || "Not provided"}
-            </p>
-            <p className="text-sm text-slate-700 sm:col-span-2">
-              <span className="font-semibold">Salary range:</span>{" "}
-              {state.submitted.salary_range || "Not provided"}
-            </p>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h5 className="text-sm font-semibold text-slate-900">Job summary</h5>
+              <div className="mt-2 space-y-1 text-sm text-slate-700">
+                <p>
+                  <span className="font-semibold">Title:</span> {analysis.jobTitle}
+                </p>
+                <p>
+                  <span className="font-semibold">Company:</span> {analysis.companyName}
+                </p>
+                <p>
+                  <span className="font-semibold">Experience:</span> {analysis.experienceLevel}
+                </p>
+                <p>
+                  <span className="font-semibold">Work type:</span> {analysis.workType}
+                </p>
+                <p>
+                  <span className="font-semibold">Location:</span> {analysis.location}
+                </p>
+                <p className="break-all">
+                  <span className="font-semibold">Source URL:</span>{" "}
+                  {state.submitted.source_url || "Not provided"}
+                </p>
+                {state.model ? (
+                  <p>
+                    <span className="font-semibold">Model:</span> {state.model}
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </div>
 
-          <div>
-            <p className="mb-1 text-sm font-semibold text-slate-700">Job post text</p>
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-white p-3 text-xs leading-6 text-slate-700">
-              {state.submitted.job_post_text}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <SkillsBadgeSection
+              title="Matched skills"
+              items={analysis.matchedSkills}
+              tone="match"
+            />
+            <SkillsBadgeSection
+              title="Partially matched skills"
+              items={analysis.partiallyMatchedSkills}
+              tone="partial"
+            />
+            <SkillsBadgeSection
+              title="Missing skills"
+              items={analysis.missingSkills}
+              tone="missing"
+            />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ListSection title="Required skills" items={analysis.requiredSkills} />
+            <ListSection title="Nice-to-have skills" items={analysis.niceToHaveSkills} />
+            <ListSection title="Responsibilities" items={analysis.responsibilities} />
+            <ListSection title="Relevant projects" items={analysis.relevantProjects} />
+            <ListSection title="Weak areas" items={analysis.weakAreas} />
+            <ListSection title="Red flags" items={analysis.redFlags} emptyLabel="No major red flags identified." />
+          </div>
+
+          <ResumeKeywordSection analysis={analysis} />
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h5 className="text-sm font-semibold text-slate-900">Generated application email</h5>
+            <p className="mt-2 text-sm text-slate-700">
+              <span className="font-semibold">Subject:</span> {analysis.generatedEmailSubject}
+            </p>
+            <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+              {analysis.generatedApplicationEmail}
             </pre>
-          </div>
+          </section>
+
+          <ListSection
+            title="Interview preparation questions"
+            items={analysis.interviewPreparationQuestions}
+          />
         </section>
       ) : null}
     </div>

@@ -26,8 +26,9 @@ export default async function AnalyzePage() {
           Analyze Job
         </h3>
         <p className="mt-2 text-sm text-slate-600">
-          Paste a job post and review your submitted input. AI analysis is not
-          active yet in this step.
+          Paste a job post to get a structured fit analysis based on your
+          profile, including score, skill gaps, red flags, resume keywords, and
+          a tailored application email.
         </p>
       </div>
 
