@@ -2,6 +2,9 @@
 
 AI-powered job application assistant for developers.
 
+## Live Demo
+[View the live demo](https://jobfit-copilot-sigma.vercel.app)
+
 ## Problem Statement
 Developers often spend too much time decoding long job posts, guessing fit, and writing generic applications. JobFit Copilot helps users make clearer, more honest application decisions by comparing real profile data against job requirements before applying.
 
