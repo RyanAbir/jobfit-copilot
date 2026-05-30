@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { Type } from "@google/genai";
 import { createGeminiClient, getGeminiModelName } from "@/lib/ai/gemini";
@@ -27,19 +27,39 @@ export class InvalidAiJsonError extends Error {
   }
 }
 
+class JsonParseFailureError extends InvalidAiJsonError {
+  diagnostics: Record<string, unknown>;
+
+  constructor(diagnostics: Record<string, unknown>) {
+    super();
+    this.name = "JsonParseFailureError";
+    this.diagnostics = diagnostics;
+  }
+}
+
 const systemInstruction = `
 You are JobFit Copilot, an honest job application assistant for full-stack developers.
 
 Rules:
 - Return valid JSON only.
-- Do not include markdown.
-- Do not include text outside JSON.
+- No markdown.
+- No comments.
+- No prose outside JSON.
 - Do not invent candidate experience.
 - Do not claim skills not present in profile fields.
 - Missing skills must be explicit and honest.
 - Do not encourage auto-apply, spam, scraping, or mass-application behavior.
 - Keep outputs practical, concise, and ethical.
 - Use the exact schema requested.
+- scoreExplanation must be 2-4 sentences.
+- generatedApplicationEmail must be concise.
+- interviewPreparationQuestions must contain at most 5 items.
+`.trim();
+
+const repairSystemInstruction = `
+You repair malformed JSON.
+Return only valid JSON that matches the required schema exactly.
+No markdown. No comments. No prose outside JSON.
 `.trim();
 
 const requiredTopLevelKeys = [
@@ -142,7 +162,8 @@ function buildUserPrompt(
   jobInput: JobAnalysisInput,
 ): string {
   return `
-Analyze this job post against the candidate profile.
+Analyze the job post against the candidate profile.
+Return only valid JSON. No markdown. No comments. No prose outside JSON.
 
 Candidate Profile JSON:
 ${JSON.stringify(profile)}
@@ -213,6 +234,22 @@ Match labels:
 - 60-79 => Good Match
 - 40-59 => Partial Match
 - 0-39 => Weak Match
+
+Output constraints:
+- scoreExplanation: 2-4 sentences.
+- generatedApplicationEmail: concise and direct.
+- interviewPreparationQuestions: maximum 5 items.
+`.trim();
+}
+
+function buildRepairPrompt(rawResponseText: string): string {
+  return `
+The following text should be JSON but is invalid.
+Repair it into valid JSON matching the required schema exactly.
+Return only JSON.
+
+Invalid JSON text:
+${rawResponseText}
 `.trim();
 }
 
@@ -329,11 +366,30 @@ function parseScoreBreakdown(value: unknown): ScoreBreakdown {
   };
 }
 
+function getBoundaryCharCodes(value: string): {
+  firstNonWhitespaceCharCode: number | null;
+  lastNonWhitespaceCharCode: number | null;
+} {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return {
+      firstNonWhitespaceCharCode: null,
+      lastNonWhitespaceCharCode: null,
+    };
+  }
+
+  return {
+    firstNonWhitespaceCharCode: trimmed.charCodeAt(0),
+    lastNonWhitespaceCharCode: trimmed.charCodeAt(trimmed.length - 1),
+  };
+}
+
 function extractJsonCandidate(rawText: string): string {
   const trimmed = rawText.trim();
 
   if (!trimmed) {
-    throw new InvalidAiJsonError();
+    return "";
   }
 
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -346,10 +402,20 @@ function extractJsonCandidate(rawText: string): string {
 
 function parseJsonObjectFromText(rawText: string): unknown {
   const candidate = extractJsonCandidate(rawText);
+  const trimmedCandidate = candidate.trim();
+
+  if (!trimmedCandidate) {
+    throw new JsonParseFailureError({
+      reason: "empty_candidate",
+      responseLength: rawText.length,
+      candidateLength: candidate.length,
+      ...getBoundaryCharCodes(candidate),
+    });
+  }
 
   try {
     return JSON.parse(candidate);
-  } catch {
+  } catch (candidateError) {
     const firstBrace = candidate.indexOf("{");
     const lastBrace = candidate.lastIndexOf("}");
 
@@ -357,22 +423,36 @@ function parseJsonObjectFromText(rawText: string): unknown {
       const sliced = candidate.slice(firstBrace, lastBrace + 1).trim();
       try {
         return JSON.parse(sliced);
-      } catch {
-        logDevDiagnostics("json_parse_failed", {
+      } catch (slicedError) {
+        throw new JsonParseFailureError({
+          reason: "json_parse_failed",
           responseLength: rawText.length,
           candidateLength: candidate.length,
           slicedLength: sliced.length,
+          ...getBoundaryCharCodes(candidate),
+          candidateParseMessage:
+            candidateError instanceof Error
+              ? candidateError.message
+              : "unknown_parse_error",
+          slicedParseMessage:
+            slicedError instanceof Error
+              ? slicedError.message
+              : "unknown_parse_error",
         });
       }
-    } else {
-      logDevDiagnostics("json_markers_missing", {
-        responseLength: rawText.length,
-        candidateLength: candidate.length,
-      });
     }
-  }
 
-  throw new InvalidAiJsonError();
+    throw new JsonParseFailureError({
+      reason: "json_markers_missing",
+      responseLength: rawText.length,
+      candidateLength: candidate.length,
+      ...getBoundaryCharCodes(candidate),
+      candidateParseMessage:
+        candidateError instanceof Error
+          ? candidateError.message
+          : "unknown_parse_error",
+    });
+  }
 }
 
 function collectTopLevelTypeMismatches(
@@ -435,13 +515,14 @@ function collectTopLevelTypeMismatches(
 
 function parseAndValidateAnalysis(rawText: string): JobFitAnalysis {
   const parsed = parseJsonObjectFromText(rawText);
+
   try {
     const obj = asRecord(parsed);
     if (!obj) {
-      logDevDiagnostics("parsed_root_is_not_object", {
+      throw new JsonParseFailureError({
+        reason: "parsed_root_is_not_object",
         responseLength: rawText.length,
       });
-      throw new InvalidAiJsonError();
     }
 
     const missingTopLevelKeys = requiredTopLevelKeys.filter(
@@ -507,7 +588,7 @@ function parseAndValidateAnalysis(rawText: string): JobFitAnalysis {
       ),
       interviewPreparationQuestions: asStringArray(
         obj.interviewPreparationQuestions,
-      ),
+      ).slice(0, 5),
       scoreBreakdown,
       finalScore,
       matchLabel: normalizeMatchLabel(finalScore, obj.matchLabel),
@@ -547,14 +628,48 @@ function extractModelResponseText(response: unknown): string {
   return textParts.join("\n");
 }
 
+async function generateAnalysisResponseText(
+  userPrompt: string,
+): Promise<string> {
+  const client = createGeminiClient();
+  const response = await client.models.generateContent({
+    model: getGeminiModelName(),
+    contents: userPrompt,
+    config: {
+      systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: analysisResponseSchema,
+      temperature: 0.2,
+      maxOutputTokens: 3072,
+    },
+  });
+
+  return extractModelResponseText(response).trim();
+}
+
+async function repairInvalidJsonText(rawResponseText: string): Promise<string> {
+  const client = createGeminiClient();
+  const response = await client.models.generateContent({
+    model: getGeminiModelName(),
+    contents: buildRepairPrompt(rawResponseText),
+    config: {
+      systemInstruction: repairSystemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: analysisResponseSchema,
+      temperature: 0,
+      maxOutputTokens: 3072,
+    },
+  });
+
+  return extractModelResponseText(response).trim();
+}
+
 export async function analyzeJobWithGemini(
   profile: CandidateProfileForAnalysis,
   jobInput: JobAnalysisInput,
 ): Promise<JobFitAnalysis> {
-  let client;
-
   try {
-    client = createGeminiClient();
+    createGeminiClient();
   } catch (error) {
     if (error instanceof Error && error.message.includes("GEMINI_API_KEY")) {
       throw new MissingGeminiApiKeyError();
@@ -562,19 +677,10 @@ export async function analyzeJobWithGemini(
     throw error;
   }
 
-  const response = await client.models.generateContent({
-    model: getGeminiModelName(),
-    contents: buildUserPrompt(profile, jobInput),
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: analysisResponseSchema,
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-    },
-  });
+  const rawText = await generateAnalysisResponseText(
+    buildUserPrompt(profile, jobInput),
+  );
 
-  const rawText = extractModelResponseText(response).trim();
   logDevDiagnostics("raw_response_received", {
     responseLength: rawText.length,
   });
@@ -583,5 +689,32 @@ export async function analyzeJobWithGemini(
     throw new InvalidAiJsonError();
   }
 
-  return parseAndValidateAnalysis(rawText);
+  try {
+    return parseAndValidateAnalysis(rawText);
+  } catch (error) {
+    if (!(error instanceof JsonParseFailureError)) {
+      throw error;
+    }
+
+    logDevDiagnostics("primary_json_parse_failed", error.diagnostics);
+
+    const repairedRawText = await repairInvalidJsonText(rawText);
+    logDevDiagnostics("repair_response_received", {
+      responseLength: repairedRawText.length,
+    });
+
+    if (!repairedRawText) {
+      throw new InvalidAiJsonError();
+    }
+
+    try {
+      return parseAndValidateAnalysis(repairedRawText);
+    } catch (repairError) {
+      if (repairError instanceof JsonParseFailureError) {
+        logDevDiagnostics("repair_json_parse_failed", repairError.diagnostics);
+      }
+
+      throw new InvalidAiJsonError();
+    }
+  }
 }
