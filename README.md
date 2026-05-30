@@ -126,13 +126,23 @@ In progress / polish:
 - Analytics and application history insights
 
 ## Screenshots
-Replace placeholders with real screenshots before portfolio submission.
+### Landing page
+![Landing page](./public/screenshots/landing-page.png)
 
-- Landing page: `docs/screenshots/landing-page.png`
-- Dashboard: `docs/screenshots/dashboard.png`
-- Profile: `docs/screenshots/profile.png`
-- Analyze Job: `docs/screenshots/analyze-job.png`
-- Application Detail: `docs/screenshots/application-detail.png`
+### Dashboard
+![Dashboard](./public/screenshots/dashboard.png)
+
+### Developer profile
+![Developer profile](./public/screenshots/profile-page.png)
+
+### Analyze job with AI result
+![Analyze job with AI result](./public/screenshots/analyze-job-result.png)
+
+### Saved applications list
+![Saved applications list](./public/screenshots/applications-list.png)
+
+### Saved application detail
+![Saved application detail](./public/screenshots/application-detail.png)
 
 ## Demo Script
 1. Sign up or sign in.
