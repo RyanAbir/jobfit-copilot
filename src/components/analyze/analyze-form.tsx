@@ -171,8 +171,22 @@ export default function AnalyzeForm({
 }: AnalyzeFormProps) {
   const [formValues, setFormValues] =
     useState<AnalyzeFormValues>(initialFormValues);
+  const [showExtractionFeedback, setShowExtractionFeedback] = useState(false);
+  const [showAnalysisFeedback, setShowAnalysisFeedback] = useState(false);
+
+  async function handleAnalysisAction(
+    prevState: AnalyzeFormState,
+    formData: FormData,
+  ): Promise<AnalyzeFormState> {
+    setShowAnalysisFeedback(false);
+    setShowExtractionFeedback(false);
+    const nextState = await action(prevState, formData);
+    setShowAnalysisFeedback(true);
+    return nextState;
+  }
+
   const [state, formAction, pending] = useActionState(
-    action,
+    handleAnalysisAction,
     initialAnalyzeFormState,
   );
 
@@ -180,7 +194,10 @@ export default function AnalyzeForm({
     prevState: JobExtractionFormState,
     formData: FormData,
   ): Promise<JobExtractionFormState> {
+    setShowExtractionFeedback(false);
+    setShowAnalysisFeedback(false);
     const nextState = await extractionAction(prevState, formData);
+    setShowExtractionFeedback(true);
 
     if (nextState.status === "success" && nextState.details) {
       const details = nextState.details;
@@ -238,13 +255,13 @@ export default function AnalyzeForm({
         </div>
       ) : null}
 
-      {state.status === "error" && state.message ? (
+      {showAnalysisFeedback && state.status === "error" && state.message ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm text-rose-700">
           {state.message}
         </p>
       ) : null}
 
-      {state.status === "success" && state.message ? (
+      {showAnalysisFeedback && state.status === "success" && state.message ? (
         <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm text-emerald-700">
           {state.message}
         </p>
@@ -261,13 +278,17 @@ export default function AnalyzeForm({
           </p>
         </div>
 
-        {extractionState.status === "error" && extractionState.message ? (
+        {showExtractionFeedback &&
+        extractionState.status === "error" &&
+        extractionState.message ? (
           <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm text-rose-700">
             {extractionState.message}
           </p>
         ) : null}
 
-        {extractionState.status === "success" && extractionState.message ? (
+        {showExtractionFeedback &&
+        extractionState.status === "success" &&
+        extractionState.message ? (
           <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm text-emerald-700">
             <p>{extractionState.message}</p>
             {extractionState.details?.confidenceNotes ? (
@@ -495,7 +516,10 @@ export default function AnalyzeForm({
         </button>
       </form>
 
-      {state.status === "success" && state.submitted && analysis ? (
+      {showAnalysisFeedback &&
+      state.status === "success" &&
+      state.submitted &&
+      analysis ? (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
           {state.saved?.jobId ? (
             <div className="flex flex-col gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">

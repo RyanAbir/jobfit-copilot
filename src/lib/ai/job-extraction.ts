@@ -191,7 +191,7 @@ function normalizeExtraction(
     sourceUrl: asString(obj.sourceUrl),
     workType: asString(obj.workType),
     salaryRange: asString(obj.salaryRange),
-    jobPostText: asString(obj.jobPostText, fallbackJobPostText),
+    jobPostText: asString(obj.jobPostText) || fallbackJobPostText,
     location: asString(obj.location),
     experienceLevel: asString(obj.experienceLevel),
     confidenceNotes: asString(obj.confidenceNotes),

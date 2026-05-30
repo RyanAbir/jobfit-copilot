@@ -58,6 +58,35 @@ function toResumeKeywordsArray(analysis: JobFitAnalysis): string[] {
   return Array.from(new Set(groupedKeywords.filter(Boolean)));
 }
 
+function logSafeActionDiagnostics(
+  label: string,
+  error: unknown,
+  context: Record<string, unknown> = {},
+): void {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
+  const errorRecord =
+    error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+
+  console.warn(`[analyze-action] ${label}`, {
+    ...context,
+    errorName: error instanceof Error ? error.name : typeof error,
+    errorMessage: error instanceof Error ? error.message : "unknown_error",
+    errorCode:
+      typeof errorRecord.code === "string" ||
+      typeof errorRecord.code === "number"
+        ? errorRecord.code
+        : undefined,
+    errorStatus:
+      typeof errorRecord.status === "string" ||
+      typeof errorRecord.status === "number"
+        ? errorRecord.status
+        : undefined,
+  });
+}
+
 function getOptionalFile(formData: FormData, key: string): File | null {
   const value = formData.get(key);
 
@@ -376,6 +405,10 @@ export async function submitAnalyzeFormAction(
     };
   } catch (error) {
     if (error instanceof MissingGeminiApiKeyError) {
+      logSafeActionDiagnostics("analysis_failed", error, {
+        reason: "missing_gemini_api_key",
+      });
+
       return {
         status: "error",
         message: error.message,
@@ -383,11 +416,19 @@ export async function submitAnalyzeFormAction(
     }
 
     if (error instanceof InvalidAiJsonError) {
+      logSafeActionDiagnostics("analysis_failed", error, {
+        reason: "invalid_ai_json",
+      });
+
       return {
         status: "error",
         message: error.message,
       };
     }
+
+    logSafeActionDiagnostics("analysis_failed", error, {
+      reason: "unexpected_error",
+    });
 
     return {
       status: "error",
