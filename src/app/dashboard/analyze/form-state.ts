@@ -4,6 +4,7 @@ export type AnalyzeFieldName =
   | "source_url"
   | "job_post_text"
   | "jobTextInput"
+  | "jobUrlInput"
   | "jobImage";
 
 export type AnalyzeFormState = {

@@ -11,6 +11,10 @@ import {
   InvalidJobExtractionError,
 } from "@/lib/ai/job-extraction";
 import {
+  fetchReadableJobLinkText,
+  JobLinkFetchError,
+} from "@/lib/job-link-fetch";
+import {
   analyzeJobWithGemini,
   InvalidAiJsonError,
   MissingGeminiApiKeyError,
@@ -78,15 +82,17 @@ export async function extractJobDetailsAction(
   }
 
   const jobTextInput = getTextValue(formData, "jobTextInput");
+  const jobUrlInput = getTextValue(formData, "jobUrlInput");
   const jobImage = getOptionalFile(formData, "jobImage");
   const fieldErrors: JobExtractionFormState["fieldErrors"] = {};
 
-  if (!jobTextInput && !jobImage) {
+  if (!jobTextInput && !jobImage && !jobUrlInput) {
     return {
       status: "error",
-      message: "Paste a job post or upload a screenshot first.",
+      message: "Paste a job post, upload a screenshot, or enter a job URL first.",
       fieldErrors: {
-        jobTextInput: "Paste a job post or upload a screenshot first.",
+        jobTextInput:
+          "Paste a job post, upload a screenshot, or enter a job URL first.",
       },
     };
   }
@@ -108,16 +114,30 @@ export async function extractJobDetailsAction(
   }
 
   try {
-    // Pasted text wins when both inputs are provided because it is usually cleaner
-    // than OCR from a screenshot and avoids sending duplicate job-post content.
-    const details = jobTextInput
-      ? await extractJobDetailsFromText(jobTextInput)
-      : await extractJobDetailsFromImage({
-          imageBase64: Buffer.from(await jobImage!.arrayBuffer()).toString(
-            "base64",
-          ),
-          mimeType: jobImage!.type,
-        });
+    // Extraction priority is intentionally explicit: pasted text is cleanest,
+    // screenshot OCR is next, and public URL fetch is a best-effort fallback.
+    let details;
+
+    if (jobTextInput) {
+      details = await extractJobDetailsFromText(jobTextInput);
+    } else if (jobImage) {
+      details = await extractJobDetailsFromImage({
+        imageBase64: Buffer.from(await jobImage.arrayBuffer()).toString(
+          "base64",
+        ),
+        mimeType: jobImage.type,
+      });
+    } else {
+      const fetchedJobLink = await fetchReadableJobLinkText(jobUrlInput);
+      const extractedDetails = await extractJobDetailsFromText(
+        fetchedJobLink.readableText,
+      );
+
+      details = {
+        ...extractedDetails,
+        sourceUrl: extractedDetails.sourceUrl || fetchedJobLink.sourceUrl,
+      };
+    }
 
     return {
       status: "success",
@@ -125,6 +145,18 @@ export async function extractJobDetailsAction(
       details,
     };
   } catch (error) {
+    if (error instanceof JobLinkFetchError) {
+      return {
+        status: "error",
+        message: error.isLinkedIn
+          ? "LinkedIn often blocks direct extraction. Please paste the job description or upload a screenshot."
+          : error.message,
+        fieldErrors: {
+          jobUrlInput: error.message,
+        },
+      };
+    }
+
     if (error instanceof InvalidJobExtractionError) {
       return {
         status: "error",

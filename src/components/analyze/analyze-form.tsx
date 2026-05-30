@@ -256,8 +256,8 @@ export default function AnalyzeForm({
             Add job post
           </h4>
           <p className="mt-1 text-sm text-slate-600">
-            Paste a job post or upload a screenshot. JobFit will extract the key
-            details for you.
+            Paste a job post, upload a screenshot, or add a public job link.
+            JobFit will extract the key details for you.
           </p>
         </div>
 
@@ -279,6 +279,29 @@ export default function AnalyzeForm({
         ) : null}
 
         <form action={extractionFormAction} className="mt-4 space-y-4">
+          <div className="space-y-1.5">
+            <label
+              htmlFor="jobUrlInput"
+              className="text-sm font-medium text-slate-700"
+            >
+              Job post URL
+            </label>
+            <input
+              id="jobUrlInput"
+              name="jobUrlInput"
+              type="url"
+              className={getInputClass(
+                Boolean(extractionState.fieldErrors?.jobUrlInput),
+              )}
+              placeholder="https://company.com/careers/job-post"
+            />
+            {extractionState.fieldErrors?.jobUrlInput ? (
+              <p className="text-xs text-rose-700">
+                {extractionState.fieldErrors.jobUrlInput}
+              </p>
+            ) : null}
+          </div>
+
           <div className="space-y-1.5">
             <label
               htmlFor="jobTextInput"
