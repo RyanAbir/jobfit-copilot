@@ -124,6 +124,12 @@ alter table public.jobs enable row level security;
 alter table public.job_analysis enable row level security;
 alter table public.generated_applications enable row level security;
 
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on table public.profiles to authenticated;
+grant select, insert, update, delete on table public.jobs to authenticated;
+grant select, insert, update, delete on table public.job_analysis to authenticated;
+grant select, insert, update, delete on table public.generated_applications to authenticated;
+
 create policy "Users can read their own profile"
 on public.profiles
 for select
