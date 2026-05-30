@@ -1,6 +1,13 @@
 import { notFound, redirect } from "next/navigation";
 import CopyButton from "@/components/ui/copy-button";
+import ApplicationStatusForm from "@/components/applications/application-status-form";
+import { updateApplicationStatusAction } from "@/app/dashboard/applications/[jobId]/actions";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
+import {
+  APPLICATION_STATUSES,
+  isApplicationStatus,
+  type ApplicationStatus,
+} from "@/lib/application-status";
 
 type JobRow = {
   id: string;
@@ -44,7 +51,7 @@ type GeneratedApplicationRow = {
   cover_letter: string | null;
   resume_keywords: string[] | null;
   interview_questions: string[] | null;
-  status: string;
+  status: string | null;
 };
 
 type ResumeKeywordGroups = {
@@ -181,6 +188,10 @@ export default async function ApplicationDetailPage({
     .maybeSingle();
 
   const generated = (generatedData ?? null) as GeneratedApplicationRow | null;
+  const generatedStatus = generated?.status ?? "";
+  const currentStatus: ApplicationStatus = isApplicationStatus(generatedStatus)
+    ? generatedStatus
+    : "Draft";
 
   const resumeKeywordGroups = parseResumeKeywordGroups(analysis?.raw_ai_response);
   const weakAreas = parseWeakAreas(analysis?.raw_ai_response);
@@ -211,9 +222,17 @@ export default async function ApplicationDetailPage({
           </p>
         </div>
         <p className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-          Status: {generated?.status || "Draft"}
+          Status: {currentStatus}
         </p>
       </div>
+
+      <ApplicationStatusForm
+        jobId={job.id}
+        currentStatus={currentStatus}
+        statusOptions={APPLICATION_STATUSES}
+        action={updateApplicationStatusAction}
+        hasGeneratedApplication={Boolean(generated)}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
