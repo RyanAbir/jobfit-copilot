@@ -1,13 +1,17 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo } from "react";
 import {
   initialProfileFormState,
+  type ProfileFormState,
   type ProfileFormValues,
 } from "@/app/dashboard/profile/form-state";
-import { saveProfileAction } from "@/app/dashboard/profile/actions";
 
 type ProfileFormProps = {
+  action: (
+    prevState: ProfileFormState,
+    formData: FormData,
+  ) => Promise<ProfileFormState>;
   initialValues: ProfileFormValues;
   hasExistingProfile: boolean;
   loadErrorMessage?: string;
@@ -22,15 +26,15 @@ function getInputClass(hasError: boolean): string {
 }
 
 export default function ProfileForm({
+  action,
   initialValues,
   hasExistingProfile,
   loadErrorMessage,
 }: ProfileFormProps) {
   const [state, formAction, pending] = useActionState(
-    saveProfileAction,
+    action,
     initialProfileFormState,
   );
-  const [formValues, setFormValues] = useState<ProfileFormValues>(initialValues);
 
   const submitLabel = useMemo(() => {
     if (pending) {
@@ -39,13 +43,6 @@ export default function ProfileForm({
 
     return hasExistingProfile ? "Update profile" : "Save profile";
   }, [hasExistingProfile, pending]);
-
-  function updateField<K extends keyof ProfileFormValues>(
-    key: K,
-    value: ProfileFormValues[K],
-  ) {
-    setFormValues((prev) => ({ ...prev, [key]: value }));
-  }
 
   return (
     <form action={formAction} className="space-y-5">
@@ -77,10 +74,9 @@ export default function ProfileForm({
           </label>
           <input
             id="fullName"
-            name="fullName"
+            name="full_name"
             required
-            value={formValues.fullName}
-            onChange={(event) => updateField("fullName", event.target.value)}
+            defaultValue={initialValues.fullName}
             className={getInputClass(Boolean(state.fieldErrors?.fullName))}
             placeholder="Your full name"
           />
@@ -98,10 +94,9 @@ export default function ProfileForm({
           </label>
           <input
             id="targetRole"
-            name="targetRole"
+            name="target_role"
             required
-            value={formValues.targetRole}
-            onChange={(event) => updateField("targetRole", event.target.value)}
+            defaultValue={initialValues.targetRole}
             className={getInputClass(Boolean(state.fieldErrors?.targetRole))}
             placeholder="Full-Stack Developer"
           />
@@ -121,8 +116,7 @@ export default function ProfileForm({
           <input
             id="location"
             name="location"
-            value={formValues.location}
-            onChange={(event) => updateField("location", event.target.value)}
+            defaultValue={initialValues.location}
             className={getInputClass(false)}
             placeholder="Bangladesh / Remote"
           />
@@ -137,11 +131,8 @@ export default function ProfileForm({
           </label>
           <input
             id="experienceLevel"
-            name="experienceLevel"
-            value={formValues.experienceLevel}
-            onChange={(event) =>
-              updateField("experienceLevel", event.target.value)
-            }
+            name="experience_level"
+            defaultValue={initialValues.experienceLevel}
             className={getInputClass(false)}
             placeholder="Junior to Mid-level"
           />
@@ -156,8 +147,7 @@ export default function ProfileForm({
           id="skills"
           name="skills"
           required
-          value={formValues.skills}
-          onChange={(event) => updateField("skills", event.target.value)}
+          defaultValue={initialValues.skills}
           className={getInputClass(Boolean(state.fieldErrors?.skills))}
           placeholder="React, Next.js, Node.js"
         />
@@ -174,8 +164,7 @@ export default function ProfileForm({
           id="projects"
           name="projects"
           rows={4}
-          value={formValues.projects}
-          onChange={(event) => updateField("projects", event.target.value)}
+          defaultValue={initialValues.projects}
           className={getInputClass(false)}
           placeholder="List your relevant projects and short details."
         />
@@ -191,10 +180,9 @@ export default function ProfileForm({
           </label>
           <input
             id="portfolioUrl"
-            name="portfolioUrl"
+            name="portfolio_url"
             type="url"
-            value={formValues.portfolioUrl}
-            onChange={(event) => updateField("portfolioUrl", event.target.value)}
+            defaultValue={initialValues.portfolioUrl}
             className={getInputClass(Boolean(state.fieldErrors?.portfolioUrl))}
             placeholder="https://yourportfolio.com"
           />
@@ -215,10 +203,9 @@ export default function ProfileForm({
             </label>
             <input
               id="githubUrl"
-              name="githubUrl"
+              name="github_url"
               type="url"
-              value={formValues.githubUrl}
-              onChange={(event) => updateField("githubUrl", event.target.value)}
+              defaultValue={initialValues.githubUrl}
               className={getInputClass(Boolean(state.fieldErrors?.githubUrl))}
               placeholder="https://github.com/username"
             />
@@ -236,10 +223,9 @@ export default function ProfileForm({
             </label>
             <input
               id="linkedinUrl"
-              name="linkedinUrl"
+              name="linkedin_url"
               type="url"
-              value={formValues.linkedinUrl}
-              onChange={(event) => updateField("linkedinUrl", event.target.value)}
+              defaultValue={initialValues.linkedinUrl}
               className={getInputClass(Boolean(state.fieldErrors?.linkedinUrl))}
               placeholder="https://linkedin.com/in/username"
             />
@@ -258,10 +244,9 @@ export default function ProfileForm({
         </label>
         <textarea
           id="resumeText"
-          name="resumeText"
+          name="resume_text"
           rows={8}
-          value={formValues.resumeText}
-          onChange={(event) => updateField("resumeText", event.target.value)}
+          defaultValue={initialValues.resumeText}
           className={getInputClass(false)}
           placeholder="Paste your resume text here."
         />

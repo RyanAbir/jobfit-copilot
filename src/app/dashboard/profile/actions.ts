@@ -11,6 +11,17 @@ function getTextValue(formData: FormData, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getTextValueFromKeys(formData: FormData, keys: string[]): string {
+  for (const key of keys) {
+    const value = getTextValue(formData, key);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 function isValidHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -54,16 +65,28 @@ export async function saveProfileAction(
     };
   }
 
-  const fullName = getTextValue(formData, "fullName");
-  const targetRole = getTextValue(formData, "targetRole");
+  const fullName = getTextValueFromKeys(formData, ["fullName", "full_name"]);
+  const targetRole = getTextValueFromKeys(formData, [
+    "targetRole",
+    "target_role",
+  ]);
   const location = getTextValue(formData, "location");
-  const experienceLevel = getTextValue(formData, "experienceLevel");
+  const experienceLevel = getTextValueFromKeys(formData, [
+    "experienceLevel",
+    "experience_level",
+  ]);
   const skillsInput = getTextValue(formData, "skills");
   const projects = getTextValue(formData, "projects");
-  const portfolioUrl = getTextValue(formData, "portfolioUrl");
-  const githubUrl = getTextValue(formData, "githubUrl");
-  const linkedinUrl = getTextValue(formData, "linkedinUrl");
-  const resumeText = getTextValue(formData, "resumeText");
+  const portfolioUrl = getTextValueFromKeys(formData, [
+    "portfolioUrl",
+    "portfolio_url",
+  ]);
+  const githubUrl = getTextValueFromKeys(formData, ["githubUrl", "github_url"]);
+  const linkedinUrl = getTextValueFromKeys(formData, [
+    "linkedinUrl",
+    "linkedin_url",
+  ]);
+  const resumeText = getTextValueFromKeys(formData, ["resumeText", "resume_text"]);
 
   const fieldErrors: Partial<Record<ProfileFormFieldName, string>> = {};
 

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import ProfileForm from "@/components/profile/profile-form";
 import type { ProfileFormValues } from "@/app/dashboard/profile/form-state";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
+import { saveProfileAction } from "@/app/dashboard/profile/actions";
 
 const emptyProfileValues: ProfileFormValues = {
   fullName: "",
@@ -66,6 +67,7 @@ export default async function ProfilePage() {
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 sm:p-6">
         <ProfileForm
+          action={saveProfileAction}
           initialValues={initialValues}
           hasExistingProfile={hasExistingProfile}
           loadErrorMessage={loadErrorMessage}
