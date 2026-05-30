@@ -20,7 +20,9 @@ export default function SignUpForm() {
     setSuccessMessage(null);
 
     const supabase = createClient();
-    const emailRedirectTo = `${window.location.origin}/auth/callback`;
+    const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+    const baseUrl = configuredAppUrl || window.location.origin;
+    const emailRedirectTo = `${baseUrl.replace(/\/$/, "")}/auth/callback`;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
