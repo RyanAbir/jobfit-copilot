@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Type } from "@google/genai";
 import { createGeminiClient, getGeminiModelName } from "@/lib/ai/gemini";
 import type {
   CandidateProfileForAnalysis,
@@ -40,6 +41,101 @@ Rules:
 - Keep outputs practical, concise, and ethical.
 - Use the exact schema requested.
 `.trim();
+
+const requiredTopLevelKeys = [
+  "jobTitle",
+  "companyName",
+  "requiredSkills",
+  "niceToHaveSkills",
+  "responsibilities",
+  "experienceLevel",
+  "workType",
+  "location",
+  "redFlags",
+  "matchedSkills",
+  "partiallyMatchedSkills",
+  "missingSkills",
+  "relevantProjects",
+  "weakAreas",
+  "resumeKeywordSuggestions",
+  "generatedEmailSubject",
+  "generatedApplicationEmail",
+  "interviewPreparationQuestions",
+  "scoreBreakdown",
+  "finalScore",
+  "matchLabel",
+  "scoreExplanation",
+] as const;
+
+const analysisResponseSchema = {
+  type: Type.OBJECT,
+  required: [...requiredTopLevelKeys],
+  properties: {
+    jobTitle: { type: Type.STRING },
+    companyName: { type: Type.STRING },
+    requiredSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+    niceToHaveSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+    responsibilities: { type: Type.ARRAY, items: { type: Type.STRING } },
+    experienceLevel: { type: Type.STRING },
+    workType: { type: Type.STRING },
+    location: { type: Type.STRING },
+    redFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
+    matchedSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+    partiallyMatchedSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+    missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+    relevantProjects: { type: Type.ARRAY, items: { type: Type.STRING } },
+    weakAreas: { type: Type.ARRAY, items: { type: Type.STRING } },
+    resumeKeywordSuggestions: {
+      type: Type.OBJECT,
+      required: [
+        "frontend",
+        "backend",
+        "database",
+        "authentication",
+        "payment",
+        "deployment",
+        "testing",
+        "softSkills",
+      ],
+      properties: {
+        frontend: { type: Type.ARRAY, items: { type: Type.STRING } },
+        backend: { type: Type.ARRAY, items: { type: Type.STRING } },
+        database: { type: Type.ARRAY, items: { type: Type.STRING } },
+        authentication: { type: Type.ARRAY, items: { type: Type.STRING } },
+        payment: { type: Type.ARRAY, items: { type: Type.STRING } },
+        deployment: { type: Type.ARRAY, items: { type: Type.STRING } },
+        testing: { type: Type.ARRAY, items: { type: Type.STRING } },
+        softSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+      },
+    },
+    generatedEmailSubject: { type: Type.STRING },
+    generatedApplicationEmail: { type: Type.STRING },
+    interviewPreparationQuestions: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
+    scoreBreakdown: {
+      type: Type.OBJECT,
+      required: [
+        "technicalSkillMatch",
+        "projectRelevance",
+        "experienceMatch",
+        "locationWorkModeMatch",
+        "resumeKeywordMatch",
+      ],
+      properties: {
+        technicalSkillMatch: { type: Type.NUMBER },
+        projectRelevance: { type: Type.NUMBER },
+        experienceMatch: { type: Type.NUMBER },
+        locationWorkModeMatch: { type: Type.NUMBER },
+        resumeKeywordMatch: { type: Type.NUMBER },
+      },
+    },
+    finalScore: { type: Type.NUMBER },
+    matchLabel: { type: Type.STRING },
+    scoreExplanation: { type: Type.STRING },
+  },
+} as const;
 
 function buildUserPrompt(
   profile: CandidateProfileForAnalysis,
@@ -126,6 +222,21 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return value as Record<string, unknown>;
+}
+
+function isDevelopmentEnvironment(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+function logDevDiagnostics(
+  label: string,
+  details: Record<string, unknown>,
+): void {
+  if (!isDevelopmentEnvironment()) {
+    return;
+  }
+
+  console.warn(`[job-analysis] ${label}`, details);
 }
 
 function asString(value: unknown, fallback = ""): string {
@@ -218,64 +329,222 @@ function parseScoreBreakdown(value: unknown): ScoreBreakdown {
   };
 }
 
-function parseAndValidateAnalysis(rawText: string): JobFitAnalysis {
-  let parsed: unknown;
+function extractJsonCandidate(rawText: string): string {
+  const trimmed = rawText.trim();
+
+  if (!trimmed) {
+    throw new InvalidAiJsonError();
+  }
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim();
+  }
+
+  return trimmed;
+}
+
+function parseJsonObjectFromText(rawText: string): unknown {
+  const candidate = extractJsonCandidate(rawText);
 
   try {
-    parsed = JSON.parse(rawText);
+    return JSON.parse(candidate);
   } catch {
-    throw new InvalidAiJsonError();
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const sliced = candidate.slice(firstBrace, lastBrace + 1).trim();
+      try {
+        return JSON.parse(sliced);
+      } catch {
+        logDevDiagnostics("json_parse_failed", {
+          responseLength: rawText.length,
+          candidateLength: candidate.length,
+          slicedLength: sliced.length,
+        });
+      }
+    } else {
+      logDevDiagnostics("json_markers_missing", {
+        responseLength: rawText.length,
+        candidateLength: candidate.length,
+      });
+    }
   }
 
-  const obj = asRecord(parsed);
-  if (!obj) {
-    throw new InvalidAiJsonError();
+  throw new InvalidAiJsonError();
+}
+
+function collectTopLevelTypeMismatches(
+  obj: Record<string, unknown>,
+): string[] {
+  const mismatches: string[] = [];
+  const stringFields = [
+    "jobTitle",
+    "companyName",
+    "experienceLevel",
+    "workType",
+    "location",
+    "generatedEmailSubject",
+    "generatedApplicationEmail",
+    "scoreExplanation",
+    "matchLabel",
+  ];
+  const stringArrayFields = [
+    "requiredSkills",
+    "niceToHaveSkills",
+    "responsibilities",
+    "redFlags",
+    "matchedSkills",
+    "partiallyMatchedSkills",
+    "missingSkills",
+    "relevantProjects",
+    "weakAreas",
+    "interviewPreparationQuestions",
+  ];
+
+  for (const field of stringFields) {
+    if (obj[field] !== undefined && typeof obj[field] !== "string") {
+      mismatches.push(field);
+    }
   }
 
-  const scoreBreakdown = parseScoreBreakdown(obj.scoreBreakdown);
-  const computedFinalScore = clamp(
-    scoreBreakdown.technicalSkillMatch +
-      scoreBreakdown.projectRelevance +
-      scoreBreakdown.experienceMatch +
-      scoreBreakdown.locationWorkModeMatch +
-      scoreBreakdown.resumeKeywordMatch,
-    0,
-    100,
-  );
+  for (const field of stringArrayFields) {
+    if (obj[field] !== undefined && !Array.isArray(obj[field])) {
+      mismatches.push(field);
+    }
+  }
 
-  const coverLetter = asRecord(obj.coverLetter);
-  const finalScore = clamp(asNumber(obj.finalScore, computedFinalScore), 0, 100);
+  if (obj.finalScore !== undefined && typeof obj.finalScore !== "number") {
+    mismatches.push("finalScore");
+  }
 
-  return {
-    jobTitle: asString(obj.jobTitle, "Not specified"),
-    companyName: asString(obj.companyName, "Not specified"),
-    requiredSkills: asStringArray(obj.requiredSkills),
-    niceToHaveSkills: asStringArray(obj.niceToHaveSkills),
-    responsibilities: asStringArray(obj.responsibilities),
-    experienceLevel: asString(obj.experienceLevel, "Not specified"),
-    workType: asString(obj.workType, asString(obj.extractedWorkType, "Not specified")),
-    location: asString(obj.location, asString(obj.extractedLocation, "Not specified")),
-    redFlags: asStringArray(obj.redFlags),
-    matchedSkills: asStringArray(obj.matchedSkills),
-    partiallyMatchedSkills: asStringArray(obj.partiallyMatchedSkills),
-    missingSkills: asStringArray(obj.missingSkills),
-    relevantProjects: asStringArray(obj.relevantProjects),
-    weakAreas: asStringArray(obj.weakAreas),
-    resumeKeywordSuggestions: parseResumeKeywords(obj.resumeKeywordSuggestions),
-    generatedEmailSubject: asString(
-      obj.generatedEmailSubject,
-      asString(coverLetter?.subject, "Application for this role"),
-    ),
-    generatedApplicationEmail: asString(
-      obj.generatedApplicationEmail,
-      asString(coverLetter?.body),
-    ),
-    interviewPreparationQuestions: asStringArray(obj.interviewPreparationQuestions),
-    scoreBreakdown,
-    finalScore,
-    matchLabel: normalizeMatchLabel(finalScore, obj.matchLabel),
-    scoreExplanation: asString(obj.scoreExplanation),
-  };
+  if (obj.scoreBreakdown !== undefined && !asRecord(obj.scoreBreakdown)) {
+    mismatches.push("scoreBreakdown");
+  }
+
+  if (
+    obj.resumeKeywordSuggestions !== undefined &&
+    !asRecord(obj.resumeKeywordSuggestions)
+  ) {
+    mismatches.push("resumeKeywordSuggestions");
+  }
+
+  return mismatches;
+}
+
+function parseAndValidateAnalysis(rawText: string): JobFitAnalysis {
+  const parsed = parseJsonObjectFromText(rawText);
+  try {
+    const obj = asRecord(parsed);
+    if (!obj) {
+      logDevDiagnostics("parsed_root_is_not_object", {
+        responseLength: rawText.length,
+      });
+      throw new InvalidAiJsonError();
+    }
+
+    const missingTopLevelKeys = requiredTopLevelKeys.filter(
+      (key) => !(key in obj),
+    );
+    const typeMismatches = collectTopLevelTypeMismatches(obj);
+
+    if (missingTopLevelKeys.length > 0 || typeMismatches.length > 0) {
+      logDevDiagnostics("shape_diagnostics", {
+        responseLength: rawText.length,
+        missingTopLevelKeys,
+        typeMismatchFields: typeMismatches,
+      });
+    }
+
+    const scoreBreakdown = parseScoreBreakdown(obj.scoreBreakdown);
+    const computedFinalScore = clamp(
+      scoreBreakdown.technicalSkillMatch +
+        scoreBreakdown.projectRelevance +
+        scoreBreakdown.experienceMatch +
+        scoreBreakdown.locationWorkModeMatch +
+        scoreBreakdown.resumeKeywordMatch,
+      0,
+      100,
+    );
+
+    const coverLetter = asRecord(obj.coverLetter);
+    const finalScore = clamp(
+      asNumber(obj.finalScore, computedFinalScore),
+      0,
+      100,
+    );
+
+    return {
+      jobTitle: asString(obj.jobTitle, "Not specified"),
+      companyName: asString(obj.companyName, "Not specified"),
+      requiredSkills: asStringArray(obj.requiredSkills),
+      niceToHaveSkills: asStringArray(obj.niceToHaveSkills),
+      responsibilities: asStringArray(obj.responsibilities),
+      experienceLevel: asString(obj.experienceLevel, "Not specified"),
+      workType: asString(
+        obj.workType,
+        asString(obj.extractedWorkType, "Not specified"),
+      ),
+      location: asString(
+        obj.location,
+        asString(obj.extractedLocation, "Not specified"),
+      ),
+      redFlags: asStringArray(obj.redFlags),
+      matchedSkills: asStringArray(obj.matchedSkills),
+      partiallyMatchedSkills: asStringArray(obj.partiallyMatchedSkills),
+      missingSkills: asStringArray(obj.missingSkills),
+      relevantProjects: asStringArray(obj.relevantProjects),
+      weakAreas: asStringArray(obj.weakAreas),
+      resumeKeywordSuggestions: parseResumeKeywords(obj.resumeKeywordSuggestions),
+      generatedEmailSubject: asString(
+        obj.generatedEmailSubject,
+        asString(coverLetter?.subject, "Application for this role"),
+      ),
+      generatedApplicationEmail: asString(
+        obj.generatedApplicationEmail,
+        asString(coverLetter?.body),
+      ),
+      interviewPreparationQuestions: asStringArray(
+        obj.interviewPreparationQuestions,
+      ),
+      scoreBreakdown,
+      finalScore,
+      matchLabel: normalizeMatchLabel(finalScore, obj.matchLabel),
+      scoreExplanation: asString(obj.scoreExplanation),
+    };
+  } catch (error) {
+    if (error instanceof InvalidAiJsonError) {
+      throw error;
+    }
+
+    logDevDiagnostics("parse_validation_failed", {
+      responseLength: rawText.length,
+      errorMessage: error instanceof Error ? error.message : "unknown_error",
+    });
+    throw new InvalidAiJsonError();
+  }
+}
+
+function extractModelResponseText(response: unknown): string {
+  const responseObj = asRecord(response);
+
+  if (typeof responseObj?.text === "string") {
+    return responseObj.text;
+  }
+
+  const candidates = Array.isArray(responseObj?.candidates)
+    ? responseObj.candidates
+    : [];
+  const firstCandidate = asRecord(candidates[0]);
+  const content = asRecord(firstCandidate?.content);
+  const parts = Array.isArray(content?.parts) ? content.parts : [];
+  const textParts = parts
+    .map((part) => asRecord(part))
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .filter(Boolean);
+
+  return textParts.join("\n");
 }
 
 export async function analyzeJobWithGemini(
@@ -299,12 +568,16 @@ export async function analyzeJobWithGemini(
     config: {
       systemInstruction,
       responseMimeType: "application/json",
+      responseSchema: analysisResponseSchema,
       temperature: 0.2,
       maxOutputTokens: 4096,
     },
   });
 
-  const rawText = response.text?.trim();
+  const rawText = extractModelResponseText(response).trim();
+  logDevDiagnostics("raw_response_received", {
+    responseLength: rawText.length,
+  });
 
   if (!rawText) {
     throw new InvalidAiJsonError();
