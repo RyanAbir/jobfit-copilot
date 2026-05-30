@@ -1,36 +1,143 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+﻿# JobFit Copilot
 
-## Getting Started
+AI-powered job application assistant for developers.
 
-First, run the development server:
+## Problem Statement
+Developers often spend too much time decoding long job posts, guessing fit, and writing generic applications. JobFit Copilot helps users make clearer, more honest application decisions by comparing real profile data against job requirements before applying.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## MVP Features
+- Supabase authentication (sign up, sign in, sign out)
+- Developer profile management
+- Job post analyzer workflow
+- Gemini-powered fit score
+- Required and missing skills extraction
+- Resume keyword suggestions
+- Generated application email
+- Saved applications
+- Application status tracking
+- Dashboard metrics (total analyzed, strong matches, draft, applied)
+
+## Tech Stack
+- Next.js 16 (App Router)
+- React
+- TypeScript
+- Tailwind CSS
+- Supabase Auth + PostgreSQL Database + Row Level Security (RLS)
+- Gemini API via `@google/genai`
+- pnpm
+
+## Architecture Overview
+```text
+User -> Next.js App Router UI -> Server Actions -> Supabase (Auth + Postgres + RLS)
+                                         |
+                                         -> Gemini API (@google/genai)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Flow summary:
+1. Authenticated user creates/updates developer profile.
+2. User submits a job post from `/dashboard/analyze`.
+3. Server action validates input and profile, then calls Gemini.
+4. Analysis is saved into `jobs`, `job_analysis`, and `generated_applications`.
+5. User reviews results in saved application detail and tracks status.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database Tables
+Core MVP tables:
+- `profiles`
+- `jobs`
+- `job_analysis`
+- `generated_applications`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Schema and policies are defined in:
+- `supabase/migrations/001_mvp_schema.sql`
 
-## Learn More
+## Routes
+Public routes:
+- `/`
+- `/sign-in`
+- `/sign-up`
 
-To learn more about Next.js, take a look at the following resources:
+Protected routes:
+- `/dashboard`
+- `/dashboard/profile`
+- `/dashboard/analyze`
+- `/dashboard/applications`
+- `/dashboard/applications/[jobId]`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Local Setup
+1. Clone the repository.
+2. Install dependencies:
+```bash
+pnpm install
+```
+3. Create `.env.local` in project root.
+4. Add required environment variables:
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+GEMINI_API_KEY=
+NEXT_PUBLIC_APP_URL=
+```
+5. Run the MVP schema migration manually in Supabase SQL Editor using:
+- `supabase/migrations/001_mvp_schema.sql`
+6. Start development server:
+```bash
+pnpm dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Validation
+```bash
+pnpm lint
+pnpm build
+```
 
-## Deploy on Vercel
+## Security Notes
+- API keys are handled server-side.
+- `SUPABASE_SERVICE_ROLE_KEY` is never exposed to the browser.
+- Row Level Security (RLS) is enabled on private data tables.
+- Data access is scoped to authenticated, user-owned records.
+- The product does not provide auto-apply or spam automation.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Ethical Boundary
+- JobFit Copilot does not submit job applications automatically.
+- It does not invent or fabricate candidate experience.
+- Missing skills are surfaced explicitly and honestly.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Current MVP Status
+Completed:
+- Authentication and protected dashboard routes
+- Developer profile create/update
+- AI job analysis with structured output validation
+- Fit score, skills match/missing, red flags, and recommendation display
+- Generated application email and resume keyword suggestions
+- Saved applications list and detailed application view
+- Application status updates with ownership checks
+- Dashboard summary metrics and recent applications table
+
+In progress / polish:
+- Documentation and portfolio presentation assets (screenshots/demo)
+- Additional UX polish and broader manual QA coverage
+
+## Future Roadmap
+- PDF resume generator
+- Resume keyword optimizer improvements
+- Browser extension / manual autofill helper
+- Allowed job-board integrations only
+- Analytics and application history insights
+
+## Screenshots
+Replace placeholders with real screenshots before portfolio submission.
+
+- Landing page: `docs/screenshots/landing-page.png`
+- Dashboard: `docs/screenshots/dashboard.png`
+- Profile: `docs/screenshots/profile.png`
+- Analyze Job: `docs/screenshots/analyze-job.png`
+- Application Detail: `docs/screenshots/application-detail.png`
+
+## Demo Script
+1. Sign up or sign in.
+2. Fill in developer profile details.
+3. Paste a job post into Analyze Job.
+4. Run AI analysis.
+5. Review fit score, skills, red flags, keywords, and generated email.
+6. Save and track application status from the dashboard.
