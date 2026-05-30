@@ -16,6 +16,11 @@ export type AnalyzeFormState = {
   };
   analysis?: JobFitAnalysis;
   model?: string;
+  saved?: {
+    jobId: string;
+    analysisId?: string;
+    generatedApplicationId?: string;
+  };
 };
 
 export const initialAnalyzeFormState: AnalyzeFormState = {

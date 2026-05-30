@@ -7,7 +7,7 @@ import {
   InvalidAiJsonError,
   MissingGeminiApiKeyError,
 } from "@/lib/ai/job-analysis";
-import type { CandidateProfileForAnalysis } from "@/lib/ai/types";
+import type { CandidateProfileForAnalysis, JobFitAnalysis } from "@/lib/ai/types";
 import { getGeminiModelName } from "@/lib/ai/gemini";
 
 function getTextValue(formData: FormData, key: string): string {
@@ -22,6 +22,21 @@ function isValidHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function toResumeKeywordsArray(analysis: JobFitAnalysis): string[] {
+  const groupedKeywords = [
+    ...analysis.resumeKeywordSuggestions.frontend,
+    ...analysis.resumeKeywordSuggestions.backend,
+    ...analysis.resumeKeywordSuggestions.database,
+    ...analysis.resumeKeywordSuggestions.authentication,
+    ...analysis.resumeKeywordSuggestions.payment,
+    ...analysis.resumeKeywordSuggestions.deployment,
+    ...analysis.resumeKeywordSuggestions.testing,
+    ...analysis.resumeKeywordSuggestions.softSkills,
+  ];
+
+  return Array.from(new Set(groupedKeywords.filter(Boolean)));
 }
 
 export async function submitAnalyzeFormAction(
@@ -122,11 +137,102 @@ export async function submitAnalyzeFormAction(
       jobPostText,
     });
 
+    const { data: savedJob, error: jobInsertError } = await supabase
+      .from("jobs")
+      .insert({
+        user_id: user.id,
+        company_name: companyName || null,
+        job_title: jobTitle || null,
+        source_url: sourceUrl || null,
+        work_type: workType || null,
+        salary_range: salaryRange || null,
+        job_post_text: jobPostText,
+      })
+      .select("id")
+      .single();
+
+    if (jobInsertError || !savedJob) {
+      return {
+        status: "error",
+        message:
+          "AI analysis succeeded, but saving the job failed. Please try again.",
+      };
+    }
+
+    const { data: savedAnalysis, error: analysisInsertError } = await supabase
+      .from("job_analysis")
+      .insert({
+        job_id: savedJob.id,
+        fit_score: analysis.finalScore,
+        match_label: analysis.matchLabel,
+        technical_skill_score: analysis.scoreBreakdown.technicalSkillMatch,
+        project_relevance_score: analysis.scoreBreakdown.projectRelevance,
+        experience_match_score: analysis.scoreBreakdown.experienceMatch,
+        location_match_score: analysis.scoreBreakdown.locationWorkModeMatch,
+        resume_keyword_score: analysis.scoreBreakdown.resumeKeywordMatch,
+        required_skills: analysis.requiredSkills,
+        nice_to_have_skills: analysis.niceToHaveSkills,
+        matched_skills: analysis.matchedSkills,
+        partially_matched_skills: analysis.partiallyMatchedSkills,
+        missing_skills: analysis.missingSkills,
+        responsibilities: analysis.responsibilities,
+        tools_mentioned: [],
+        soft_skills: analysis.resumeKeywordSuggestions.softSkills,
+        experience_level: analysis.experienceLevel || null,
+        extracted_location: analysis.location || null,
+        extracted_work_type: analysis.workType || null,
+        red_flags: analysis.redFlags,
+        summary: analysis.scoreExplanation || null,
+        recommendation: analysis.matchLabel,
+        raw_ai_response: analysis,
+      })
+      .select("id")
+      .single();
+
+    if (analysisInsertError || !savedAnalysis) {
+      await supabase.from("jobs").delete().eq("id", savedJob.id);
+
+      return {
+        status: "error",
+        message:
+          "AI analysis succeeded, but saving the analysis failed. Please try again.",
+      };
+    }
+
+    const { data: savedGeneratedApplication, error: generatedAppInsertError } =
+      await supabase
+        .from("generated_applications")
+        .insert({
+          job_id: savedJob.id,
+          email_subject: analysis.generatedEmailSubject || null,
+          cover_letter: analysis.generatedApplicationEmail || null,
+          resume_keywords: toResumeKeywordsArray(analysis),
+          interview_questions: analysis.interviewPreparationQuestions,
+          status: "Draft",
+        })
+        .select("id")
+        .single();
+
+    if (generatedAppInsertError || !savedGeneratedApplication) {
+      await supabase.from("jobs").delete().eq("id", savedJob.id);
+
+      return {
+        status: "error",
+        message:
+          "AI analysis succeeded, but saving the generated application failed. Please try again.",
+      };
+    }
+
     return {
       status: "success",
-      message: "Analysis complete.",
+      message: "Analysis complete. Analysis saved.",
       model: getGeminiModelName(),
       analysis,
+      saved: {
+        jobId: savedJob.id,
+        analysisId: savedAnalysis.id,
+        generatedApplicationId: savedGeneratedApplication.id,
+      },
       submitted: {
         job_title: jobTitle,
         company_name: companyName,
