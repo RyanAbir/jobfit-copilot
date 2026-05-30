@@ -1,0 +1,20 @@
+export type AnalyzeFieldName = "source_url" | "job_post_text";
+
+export type AnalyzeFormState = {
+  status: "idle" | "success" | "error";
+  message: string;
+  fieldErrors?: Partial<Record<AnalyzeFieldName, string>>;
+  submitted?: {
+    job_title: string;
+    company_name: string;
+    source_url: string;
+    work_type: string;
+    salary_range: string;
+    job_post_text: string;
+  };
+};
+
+export const initialAnalyzeFormState: AnalyzeFormState = {
+  status: "idle",
+  message: "",
+};

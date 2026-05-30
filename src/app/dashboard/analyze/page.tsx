@@ -1,10 +1,39 @@
-export default function AnalyzePage() {
+import { redirect } from "next/navigation";
+import AnalyzeForm from "@/components/analyze/analyze-form";
+import { submitAnalyzeFormAction } from "@/app/dashboard/analyze/actions";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
+
+export default async function AnalyzePage() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/sign-in");
+  }
+
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const hasProfile = Boolean(profile);
+
   return (
-    <section className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
-      <h3 className="text-lg font-semibold text-slate-900">Analyze Job</h3>
-      <p className="mt-2 text-sm text-slate-600">
-        Job analysis input and AI flow will be implemented in a later step.
-      </p>
+    <section className="space-y-5">
+      <div>
+        <h3 className="text-2xl font-bold tracking-tight text-slate-950">
+          Analyze Job
+        </h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Paste a job post and review your submitted input. AI analysis is not
+          active yet in this step.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 sm:p-6">
+        <AnalyzeForm hasProfile={hasProfile} action={submitAnalyzeFormAction} />
+      </div>
     </section>
   );
 }
