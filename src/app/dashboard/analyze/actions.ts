@@ -21,6 +21,7 @@ import {
 } from "@/lib/ai/job-analysis";
 import type { CandidateProfileForAnalysis, JobFitAnalysis } from "@/lib/ai/types";
 import { getGeminiModelName } from "@/lib/ai/gemini";
+import { getAiErrorSummary, isAiQuotaError } from "@/lib/ai/error-utils";
 
 const MAX_JOB_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const allowedJobImageMimeTypes = new Set([
@@ -67,23 +68,14 @@ function logSafeActionDiagnostics(
     return;
   }
 
-  const errorRecord =
-    error && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  const summary = getAiErrorSummary(error);
 
   console.warn(`[analyze-action] ${label}`, {
     ...context,
-    errorName: error instanceof Error ? error.name : typeof error,
-    errorMessage: error instanceof Error ? error.message : "unknown_error",
-    errorCode:
-      typeof errorRecord.code === "string" ||
-      typeof errorRecord.code === "number"
-        ? errorRecord.code
-        : undefined,
-    errorStatus:
-      typeof errorRecord.status === "string" ||
-      typeof errorRecord.status === "number"
-        ? errorRecord.status
-        : undefined,
+    errorName: summary.errorName,
+    errorMessage: summary.errorMessage,
+    errorCode: summary.errorCode,
+    errorStatus: summary.errorStatus,
   });
 }
 
@@ -174,6 +166,17 @@ export async function extractJobDetailsAction(
       details,
     };
   } catch (error) {
+    if (isAiQuotaError(error)) {
+      logSafeActionDiagnostics("extraction_failed", error, {
+        reason: "ai_quota_or_rate_limit",
+      });
+
+      return {
+        status: "error",
+        message: "AI extraction limit reached. Please wait and try again later.",
+      };
+    }
+
     if (error instanceof JobLinkFetchError) {
       return {
         status: "error",
@@ -187,11 +190,18 @@ export async function extractJobDetailsAction(
     }
 
     if (error instanceof InvalidJobExtractionError) {
+      logSafeActionDiagnostics("extraction_failed", error, {
+        reason: "invalid_extraction_json",
+      });
       return {
         status: "error",
         message: error.message,
       };
     }
+
+    logSafeActionDiagnostics("extraction_failed", error, {
+      reason: "unexpected_error",
+    });
 
     return {
       status: "error",
@@ -404,6 +414,17 @@ export async function submitAnalyzeFormAction(
       },
     };
   } catch (error) {
+    if (isAiQuotaError(error)) {
+      logSafeActionDiagnostics("analysis_failed", error, {
+        reason: "ai_quota_or_rate_limit",
+      });
+
+      return {
+        status: "error",
+        message: "AI quota limit reached. Please wait and try again later.",
+      };
+    }
+
     if (error instanceof MissingGeminiApiKeyError) {
       logSafeActionDiagnostics("analysis_failed", error, {
         reason: "missing_gemini_api_key",
