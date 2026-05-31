@@ -273,8 +273,8 @@ export default function AnalyzeForm({
             Add job post
           </h4>
           <p className="mt-1 text-sm text-slate-600">
-            Paste a job post, upload a screenshot, or add a public job link.
-            JobFit will extract the key details for you.
+            Paste a job post or add a public job link. JobFit will extract the
+            key details for you.
           </p>
         </div>
 
@@ -342,29 +342,6 @@ export default function AnalyzeForm({
             {extractionState.fieldErrors?.jobTextInput ? (
               <p className="text-xs text-rose-700">
                 {extractionState.fieldErrors.jobTextInput}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="space-y-1.5">
-            <label
-              htmlFor="jobImage"
-              className="text-sm font-medium text-slate-700"
-            >
-              Upload screenshot
-            </label>
-            <input
-              id="jobImage"
-              name="jobImage"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className={getInputClass(
-                Boolean(extractionState.fieldErrors?.jobImage),
-              )}
-            />
-            {extractionState.fieldErrors?.jobImage ? (
-              <p className="text-xs text-rose-700">
-                {extractionState.fieldErrors.jobImage}
               </p>
             ) : null}
           </div>

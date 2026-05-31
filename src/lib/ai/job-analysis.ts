@@ -1,7 +1,5 @@
 import "server-only";
 
-import { Type } from "@google/genai";
-import { createGeminiClient, getGeminiModelName } from "@/lib/ai/gemini";
 import { getAiErrorSummary } from "@/lib/ai/error-utils";
 import {
   getNvidiaApiKey,
@@ -9,6 +7,12 @@ import {
   getNvidiaModelName,
   hasNvidiaApiKey,
 } from "@/lib/ai/nvidia";
+import {
+  getOpenRouterApiKey,
+  getOpenRouterBaseUrl,
+  getOpenRouterModelName,
+  hasOpenRouterApiKey,
+} from "@/lib/ai/openrouter";
 import type {
   CandidateProfileForAnalysis,
   JobAnalysisInput,
@@ -18,15 +22,6 @@ import type {
   ScoreBreakdown,
 } from "@/lib/ai/types";
 
-export class MissingGeminiApiKeyError extends Error {
-  constructor() {
-    super(
-      "GEMINI_API_KEY is not configured. Please add it to your server environment and try again.",
-    );
-    this.name = "MissingGeminiApiKeyError";
-  }
-}
-
 export class InvalidAiJsonError extends Error {
   constructor() {
     super("The AI response could not be processed. Please try again.");
@@ -34,7 +29,7 @@ export class InvalidAiJsonError extends Error {
   }
 }
 
-export type AnalysisProvider = "nvidia" | "gemini";
+export type AnalysisProvider = "nvidia" | "openrouter";
 
 export type AnalyzeJobProviderResult = {
   analysis: JobFitAnalysis;
@@ -81,12 +76,6 @@ Rules:
 - interviewPreparationQuestions must contain at most 5 items.
 `.trim();
 
-const repairSystemInstruction = `
-You repair malformed JSON.
-Return only valid JSON that matches the required schema exactly.
-No markdown. No comments. No prose outside JSON.
-`.trim();
-
 const requiredTopLevelKeys = [
   "jobTitle",
   "companyName",
@@ -111,76 +100,6 @@ const requiredTopLevelKeys = [
   "matchLabel",
   "scoreExplanation",
 ] as const;
-
-const analysisResponseSchema = {
-  type: Type.OBJECT,
-  required: [...requiredTopLevelKeys],
-  properties: {
-    jobTitle: { type: Type.STRING },
-    companyName: { type: Type.STRING },
-    requiredSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-    niceToHaveSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-    responsibilities: { type: Type.ARRAY, items: { type: Type.STRING } },
-    experienceLevel: { type: Type.STRING },
-    workType: { type: Type.STRING },
-    location: { type: Type.STRING },
-    redFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
-    matchedSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-    partiallyMatchedSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-    missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-    relevantProjects: { type: Type.ARRAY, items: { type: Type.STRING } },
-    weakAreas: { type: Type.ARRAY, items: { type: Type.STRING } },
-    resumeKeywordSuggestions: {
-      type: Type.OBJECT,
-      required: [
-        "frontend",
-        "backend",
-        "database",
-        "authentication",
-        "payment",
-        "deployment",
-        "testing",
-        "softSkills",
-      ],
-      properties: {
-        frontend: { type: Type.ARRAY, items: { type: Type.STRING } },
-        backend: { type: Type.ARRAY, items: { type: Type.STRING } },
-        database: { type: Type.ARRAY, items: { type: Type.STRING } },
-        authentication: { type: Type.ARRAY, items: { type: Type.STRING } },
-        payment: { type: Type.ARRAY, items: { type: Type.STRING } },
-        deployment: { type: Type.ARRAY, items: { type: Type.STRING } },
-        testing: { type: Type.ARRAY, items: { type: Type.STRING } },
-        softSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-      },
-    },
-    generatedEmailSubject: { type: Type.STRING },
-    generatedApplicationEmail: { type: Type.STRING },
-    interviewPreparationQuestions: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    scoreBreakdown: {
-      type: Type.OBJECT,
-      required: [
-        "technicalSkillMatch",
-        "projectRelevance",
-        "experienceMatch",
-        "locationWorkModeMatch",
-        "resumeKeywordMatch",
-      ],
-      properties: {
-        technicalSkillMatch: { type: Type.NUMBER },
-        projectRelevance: { type: Type.NUMBER },
-        experienceMatch: { type: Type.NUMBER },
-        locationWorkModeMatch: { type: Type.NUMBER },
-        resumeKeywordMatch: { type: Type.NUMBER },
-      },
-    },
-    finalScore: { type: Type.NUMBER },
-    matchLabel: { type: Type.STRING },
-    scoreExplanation: { type: Type.STRING },
-  },
-} as const;
 
 function buildUserPrompt(
   profile: CandidateProfileForAnalysis,
@@ -264,17 +183,6 @@ Output constraints:
 - scoreExplanation: 2-4 sentences.
 - generatedApplicationEmail: concise and direct.
 - interviewPreparationQuestions: maximum 5 items.
-`.trim();
-}
-
-function buildRepairPrompt(rawResponseText: string): string {
-  return `
-The following text should be JSON but is invalid.
-Repair it into valid JSON matching the required schema exactly.
-Return only JSON.
-
-Invalid JSON text:
-${rawResponseText}
 `.trim();
 }
 
@@ -632,64 +540,7 @@ function parseAndValidateAnalysis(rawText: string): JobFitAnalysis {
   }
 }
 
-function extractModelResponseText(response: unknown): string {
-  const responseObj = asRecord(response);
-
-  if (typeof responseObj?.text === "string") {
-    return responseObj.text;
-  }
-
-  const candidates = Array.isArray(responseObj?.candidates)
-    ? responseObj.candidates
-    : [];
-  const firstCandidate = asRecord(candidates[0]);
-  const content = asRecord(firstCandidate?.content);
-  const parts = Array.isArray(content?.parts) ? content.parts : [];
-  const textParts = parts
-    .map((part) => asRecord(part))
-    .map((part) => (typeof part?.text === "string" ? part.text : ""))
-    .filter(Boolean);
-
-  return textParts.join("\n");
-}
-
-async function generateGeminiAnalysisResponseText(
-  userPrompt: string,
-): Promise<string> {
-  const client = createGeminiClient();
-  const response = await client.models.generateContent({
-    model: getGeminiModelName(),
-    contents: userPrompt,
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: analysisResponseSchema,
-      temperature: 0.2,
-      maxOutputTokens: 3072,
-    },
-  });
-
-  return extractModelResponseText(response).trim();
-}
-
-async function repairInvalidJsonText(rawResponseText: string): Promise<string> {
-  const client = createGeminiClient();
-  const response = await client.models.generateContent({
-    model: getGeminiModelName(),
-    contents: buildRepairPrompt(rawResponseText),
-    config: {
-      systemInstruction: repairSystemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: analysisResponseSchema,
-      temperature: 0,
-      maxOutputTokens: 3072,
-    },
-  });
-
-  return extractModelResponseText(response).trim();
-}
-
-type NvidiaChatCompletionResponse = {
+type OpenAiCompatibleChatCompletionResponse = {
   choices?: Array<{
     message?: {
       content?: unknown;
@@ -727,63 +578,61 @@ function extractOpenAiCompatibleMessageText(content: unknown): string {
   return textParts.join("\n");
 }
 
-async function generateNvidiaAnalysisResponseText(
-  userPrompt: string,
-): Promise<string> {
-  const apiKey = getNvidiaApiKey();
-  const endpoint = `${getNvidiaBaseUrl().replace(/\/+$/, "")}/chat/completions`;
+async function generateOpenAiCompatibleAnalysisResponseText(input: {
+  userPrompt: string;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  provider: AnalysisProvider;
+}): Promise<string> {
+  const endpoint = `${input.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${input.apiKey}`,
     },
     body: JSON.stringify({
-      model: getNvidiaModelName(),
+      model: input.model,
       temperature: 0.2,
       max_tokens: 3072,
       messages: [
         { role: "system", content: systemInstruction },
-        { role: "user", content: userPrompt },
+        { role: "user", content: input.userPrompt },
       ],
     }),
   });
 
   if (!response.ok) {
     const failure = new Error(
-      `NVIDIA request failed with status ${response.status}.`,
+      `${input.provider} request failed with status ${response.status}.`,
     ) as Error & { status?: number; code?: string };
     failure.status = response.status;
-    failure.code = "nvidia_http_error";
+    failure.code = `${input.provider}_http_error`;
     throw failure;
   }
 
-  const payload = (await response.json()) as NvidiaChatCompletionResponse;
+  const payload = (await response.json()) as OpenAiCompatibleChatCompletionResponse;
   const firstChoice = payload.choices?.[0];
   const rawText = extractOpenAiCompatibleMessageText(firstChoice?.message?.content);
   return rawText.trim();
 }
 
-export async function analyzeJobWithGemini(
+async function analyzeJobWithNvidia(
   profile: CandidateProfileForAnalysis,
   jobInput: JobAnalysisInput,
 ): Promise<JobFitAnalysis> {
-  try {
-    createGeminiClient();
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("GEMINI_API_KEY")) {
-      throw new MissingGeminiApiKeyError();
-    }
-    throw error;
-  }
-
-  const rawText = await generateGeminiAnalysisResponseText(
-    buildUserPrompt(profile, jobInput),
-  );
+  const rawText = await generateOpenAiCompatibleAnalysisResponseText({
+    userPrompt: buildUserPrompt(profile, jobInput),
+    apiKey: getNvidiaApiKey(),
+    baseUrl: getNvidiaBaseUrl(),
+    model: getNvidiaModelName(),
+    provider: "nvidia",
+  });
 
   logDevDiagnostics("raw_response_received", {
-    provider: "gemini",
+    provider: "nvidia",
     responseLength: rawText.length,
   });
 
@@ -791,53 +640,23 @@ export async function analyzeJobWithGemini(
     throw new InvalidAiJsonError();
   }
 
-  try {
-    return parseAndValidateAnalysis(rawText);
-  } catch (error) {
-    if (!(error instanceof JsonParseFailureError)) {
-      throw error;
-    }
-
-    logDevDiagnostics("primary_json_parse_failed", {
-      provider: "gemini",
-      ...error.diagnostics,
-    });
-
-    const repairedRawText = await repairInvalidJsonText(rawText);
-    logDevDiagnostics("repair_response_received", {
-      provider: "gemini",
-      responseLength: repairedRawText.length,
-    });
-
-    if (!repairedRawText) {
-      throw new InvalidAiJsonError();
-    }
-
-    try {
-      return parseAndValidateAnalysis(repairedRawText);
-    } catch (repairError) {
-      if (repairError instanceof JsonParseFailureError) {
-        logDevDiagnostics("repair_json_parse_failed", {
-          provider: "gemini",
-          ...repairError.diagnostics,
-        });
-      }
-
-      throw new InvalidAiJsonError();
-    }
-  }
+  return parseAndValidateAnalysis(rawText);
 }
 
-async function analyzeJobWithNvidia(
+async function analyzeJobWithOpenRouter(
   profile: CandidateProfileForAnalysis,
   jobInput: JobAnalysisInput,
 ): Promise<JobFitAnalysis> {
-  const rawText = await generateNvidiaAnalysisResponseText(
-    buildUserPrompt(profile, jobInput),
-  );
+  const rawText = await generateOpenAiCompatibleAnalysisResponseText({
+    userPrompt: buildUserPrompt(profile, jobInput),
+    apiKey: getOpenRouterApiKey(),
+    baseUrl: getOpenRouterBaseUrl(),
+    model: getOpenRouterModelName(),
+    provider: "openrouter",
+  });
 
   logDevDiagnostics("raw_response_received", {
-    provider: "nvidia",
+    provider: "openrouter",
     responseLength: rawText.length,
   });
 
@@ -880,24 +699,31 @@ export async function analyzeJobWithProviders(
     });
   }
 
-  try {
-    const analysis = await analyzeJobWithGemini(profile, jobInput);
-    return {
-      analysis,
-      provider: "gemini",
-      model: getGeminiModelName(),
-    };
-  } catch (error) {
-    const summary = getAiErrorSummary(error);
-    providerFailures.push({ provider: "gemini", summary });
-    logDevDiagnostics("provider_failed", {
-      provider: "gemini",
-      summary,
+  if (hasOpenRouterApiKey()) {
+    try {
+      const analysis = await analyzeJobWithOpenRouter(profile, jobInput);
+      return {
+        analysis,
+        provider: "openrouter",
+        model: getOpenRouterModelName(),
+      };
+    } catch (error) {
+      const summary = getAiErrorSummary(error);
+      providerFailures.push({ provider: "openrouter", summary });
+      logDevDiagnostics("provider_failed", {
+        provider: "openrouter",
+        summary,
+      });
+    }
+  } else {
+    logDevDiagnostics("provider_skipped", {
+      provider: "openrouter",
+      reason: "missing_openrouter_api_key",
     });
   }
 
   throw new AnalysisProviderChainError({
-    providerOrder: ["nvidia", "gemini"],
+    providerOrder: ["nvidia", "openrouter"],
     providerFailures,
   });
 }

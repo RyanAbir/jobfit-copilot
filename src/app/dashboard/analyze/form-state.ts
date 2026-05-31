@@ -4,8 +4,7 @@ export type AnalyzeFieldName =
   | "source_url"
   | "job_post_text"
   | "jobTextInput"
-  | "jobUrlInput"
-  | "jobImage";
+  | "jobUrlInput";
 
 export type AnalyzeFormState = {
   status: "idle" | "success" | "error";

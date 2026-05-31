@@ -1,4 +1,4 @@
-﻿# JobFit Copilot
+# JobFit Copilot
 
 AI-powered job application assistant for developers.
 
@@ -12,7 +12,7 @@ Developers often spend too much time decoding long job posts, guessing fit, and 
 - Supabase authentication (sign up, sign in, sign out)
 - Developer profile management
 - Job post analyzer workflow
-- Gemini-powered fit score
+- NVIDIA-first fit score analysis with OpenRouter fallback
 - Required and missing skills extraction
 - Resume keyword suggestions
 - Generated application email
@@ -26,22 +26,22 @@ Developers often spend too much time decoding long job posts, guessing fit, and 
 - TypeScript
 - Tailwind CSS
 - Supabase Auth + PostgreSQL Database + Row Level Security (RLS)
-- NVIDIA API (OpenAI-compatible chat completions via `fetch`) for primary text analysis
-- Gemini API via `@google/genai` for fallback text analysis and screenshot extraction
+- NVIDIA API (OpenAI-compatible chat completions via `fetch`) for primary text extraction/analysis
+- OpenRouter API (OpenAI-compatible chat completions via `fetch`) as fallback extraction/analysis provider
 - pnpm
 
 ## Architecture Overview
 ```text
 User -> Next.js App Router UI -> Server Actions -> Supabase (Auth + Postgres + RLS)
                                          |
-                                         -> NVIDIA API (primary text analysis)
-                                         -> Gemini API (text fallback + image extraction)
+                                         -> NVIDIA API (primary text extraction + analysis)
+                                         -> OpenRouter API (fallback text extraction + analysis)
 ```
 
 Flow summary:
 1. Authenticated user creates/updates developer profile.
-2. User submits a job post from `/dashboard/analyze`.
-3. Server action validates input and profile, then calls NVIDIA first and falls back to Gemini if needed.
+2. User submits pasted job text or a public job URL from `/dashboard/analyze`.
+3. Server action validates input and profile, then calls NVIDIA first and falls back to OpenRouter if needed.
 4. Analysis is saved into `jobs`, `job_analysis`, and `generated_applications`.
 5. User reviews results in saved application detail and tracks status.
 
@@ -80,10 +80,12 @@ pnpm install
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-GEMINI_API_KEY=
 NVIDIA_API_KEY=
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 NVIDIA_MODEL=deepseek-ai/deepseek-v4-pro
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openrouter/free
 NEXT_PUBLIC_APP_URL=
 ```
 5. Run the MVP schema migration manually in Supabase SQL Editor using:
@@ -116,6 +118,7 @@ Completed:
 - Authentication and protected dashboard routes
 - Developer profile create/update
 - AI job analysis with structured output validation
+- Text/link job detail extraction with provider fallback
 - Fit score, skills match/missing, red flags, and recommendation display
 - Generated application email and resume keyword suggestions
 - Saved applications list and detailed application view
@@ -155,7 +158,8 @@ In progress / polish:
 ## Demo Script
 1. Sign up or sign in.
 2. Fill in developer profile details.
-3. Paste a job post into Analyze Job.
-4. Run AI analysis.
-5. Review fit score, skills, red flags, keywords, and generated email.
-6. Save and track application status from the dashboard.
+3. Paste a job post or add a public job URL.
+4. Extract job details.
+5. Run AI analysis.
+6. Review fit score, skills, red flags, keywords, and generated email.
+7. Save and track application status from the dashboard.

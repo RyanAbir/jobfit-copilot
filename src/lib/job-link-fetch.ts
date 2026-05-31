@@ -191,7 +191,7 @@ async function fetchPublicHtml(
   }
 
   throw new JobLinkFetchError(
-    "Could not extract this job link directly. Please paste the job description or upload a screenshot.",
+    "Could not extract this job link directly. Please paste the job description.",
     { isLinkedIn: isLinkedInHost(initialUrl.hostname) },
   );
 }
@@ -211,7 +211,7 @@ export async function fetchReadableJobLinkText(rawUrl: string): Promise<{
 
     if (!response.ok) {
       throw new JobLinkFetchError(
-        "Could not extract this job link directly. Please paste the job description or upload a screenshot.",
+        "Could not extract this job link directly. Please paste the job description.",
         { isLinkedIn },
       );
     }
@@ -223,7 +223,7 @@ export async function fetchReadableJobLinkText(rawUrl: string): Promise<{
       !contentType.includes("text/plain")
     ) {
       throw new JobLinkFetchError(
-        "Could not extract this job link directly. Please paste the job description or upload a screenshot.",
+        "Could not extract this job link directly. Please paste the job description.",
         { isLinkedIn },
       );
     }
@@ -236,7 +236,7 @@ export async function fetchReadableJobLinkText(rawUrl: string): Promise<{
       looksBlockedOrLoginPage(readableText)
     ) {
       throw new JobLinkFetchError(
-        "Could not extract this job link directly. Please paste the job description or upload a screenshot.",
+        "Could not extract this job link directly. Please paste the job description.",
         { isLinkedIn },
       );
     }
@@ -252,7 +252,7 @@ export async function fetchReadableJobLinkText(rawUrl: string): Promise<{
     }
 
     throw new JobLinkFetchError(
-      "Could not extract this job link directly. Please paste the job description or upload a screenshot.",
+      "Could not extract this job link directly. Please paste the job description.",
       { isLinkedIn },
     );
   } finally {

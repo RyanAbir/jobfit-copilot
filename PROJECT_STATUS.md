@@ -1,12 +1,11 @@
-﻿# Project Status
+# Project Status
 
 ## Completed Features
 - Supabase Auth flow: sign up, sign in, sign out
 - Protected dashboard routes
 - Developer profile create/update flow
 - Job analysis submission from dashboard
-- Gemini-powered analysis pipeline with server-side validation
-- NVIDIA-first text analysis with automatic Gemini fallback
+- NVIDIA-first AI pipeline with OpenRouter fallback for text extraction and final analysis
 - Fit score, score breakdown, and recommendation display
 - Required, matched, partially matched, and missing skills display
 - Resume keyword suggestions and generated application email
@@ -20,6 +19,7 @@
 - No resume PDF generation yet
 - No browser extension/manual autofill helper yet
 - No advanced analytics/history timeline yet
+- Screenshot extraction is removed; extraction is text/link only
 - Screenshot assets and live demo media are still placeholders
 
 ## Next Steps

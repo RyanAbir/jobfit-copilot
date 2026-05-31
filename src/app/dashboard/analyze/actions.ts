@@ -6,7 +6,6 @@ import type {
   JobExtractionFormState,
 } from "@/app/dashboard/analyze/form-state";
 import {
-  extractJobDetailsFromImage,
   extractJobDetailsFromText,
   InvalidJobExtractionError,
 } from "@/lib/ai/job-extraction";
@@ -19,14 +18,7 @@ import {
   InvalidAiJsonError,
 } from "@/lib/ai/job-analysis";
 import type { CandidateProfileForAnalysis, JobFitAnalysis } from "@/lib/ai/types";
-import { getAiErrorSummary, isAiQuotaError } from "@/lib/ai/error-utils";
-
-const MAX_JOB_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
-const allowedJobImageMimeTypes = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-]);
+import { getAiErrorSummary } from "@/lib/ai/error-utils";
 
 function getTextValue(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -77,16 +69,6 @@ function logSafeActionDiagnostics(
   });
 }
 
-function getOptionalFile(formData: FormData, key: string): File | null {
-  const value = formData.get(key);
-
-  if (!(value instanceof File) || value.size === 0) {
-    return null;
-  }
-
-  return value;
-}
-
 export async function extractJobDetailsAction(
   _prevState: JobExtractionFormState,
   formData: FormData,
@@ -102,50 +84,24 @@ export async function extractJobDetailsAction(
 
   const jobTextInput = getTextValue(formData, "jobTextInput");
   const jobUrlInput = getTextValue(formData, "jobUrlInput");
-  const jobImage = getOptionalFile(formData, "jobImage");
-  const fieldErrors: JobExtractionFormState["fieldErrors"] = {};
 
-  if (!jobTextInput && !jobImage && !jobUrlInput) {
+  if (!jobTextInput && !jobUrlInput) {
     return {
       status: "error",
-      message: "Paste a job post, upload a screenshot, or enter a job URL first.",
+      message: "Paste a job post or enter a job URL first.",
       fieldErrors: {
-        jobTextInput:
-          "Paste a job post, upload a screenshot, or enter a job URL first.",
+        jobTextInput: "Paste a job post or enter a job URL first.",
       },
     };
   }
 
-  if (jobImage && !allowedJobImageMimeTypes.has(jobImage.type)) {
-    fieldErrors.jobImage = "Upload a PNG, JPG, JPEG, or WebP image.";
-  }
-
-  if (jobImage && jobImage.size > MAX_JOB_IMAGE_SIZE_BYTES) {
-    fieldErrors.jobImage = "Upload an image smaller than 5MB.";
-  }
-
-  if (fieldErrors.jobImage) {
-    return {
-      status: "error",
-      message: "Please fix the highlighted upload field.",
-      fieldErrors,
-    };
-  }
-
   try {
-    // Extraction priority is intentionally explicit: pasted text is cleanest,
-    // screenshot OCR is next, and public URL fetch is a best-effort fallback.
+    // Extraction priority is intentionally explicit: pasted text is cleanest
+    // and public URL fetch is a best-effort fallback.
     let details;
 
     if (jobTextInput) {
       details = await extractJobDetailsFromText(jobTextInput);
-    } else if (jobImage) {
-      details = await extractJobDetailsFromImage({
-        imageBase64: Buffer.from(await jobImage.arrayBuffer()).toString(
-          "base64",
-        ),
-        mimeType: jobImage.type,
-      });
     } else {
       const fetchedJobLink = await fetchReadableJobLinkText(jobUrlInput);
       const extractedDetails = await extractJobDetailsFromText(
@@ -164,22 +120,11 @@ export async function extractJobDetailsAction(
       details,
     };
   } catch (error) {
-    if (isAiQuotaError(error)) {
-      logSafeActionDiagnostics("extraction_failed", error, {
-        reason: "ai_quota_or_rate_limit",
-      });
-
-      return {
-        status: "error",
-        message: "AI extraction limit reached. Please wait and try again later.",
-      };
-    }
-
     if (error instanceof JobLinkFetchError) {
       return {
         status: "error",
         message: error.isLinkedIn
-          ? "LinkedIn often blocks direct extraction. Please paste the job description or upload a screenshot."
+          ? "LinkedIn often blocks direct extraction. Please paste the job description."
           : error.message,
         fieldErrors: {
           jobUrlInput: error.message,
@@ -413,17 +358,6 @@ export async function submitAnalyzeFormAction(
       },
     };
   } catch (error) {
-    if (isAiQuotaError(error)) {
-      logSafeActionDiagnostics("analysis_failed", error, {
-        reason: "ai_quota_or_rate_limit",
-      });
-
-      return {
-        status: "error",
-        message: "AI quota limit reached. Please wait and try again later.",
-      };
-    }
-
     if (error instanceof InvalidAiJsonError) {
       logSafeActionDiagnostics("analysis_failed", error, {
         reason: "invalid_ai_json",

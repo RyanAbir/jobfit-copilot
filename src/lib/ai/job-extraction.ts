@@ -1,7 +1,18 @@
 import "server-only";
 
-import { Type, createPartFromBase64, createPartFromText } from "@google/genai";
-import { createGeminiClient, getGeminiModelName } from "@/lib/ai/gemini";
+import { getAiErrorSummary } from "@/lib/ai/error-utils";
+import {
+  getNvidiaApiKey,
+  getNvidiaBaseUrl,
+  getNvidiaModelName,
+  hasNvidiaApiKey,
+} from "@/lib/ai/nvidia";
+import {
+  getOpenRouterApiKey,
+  getOpenRouterBaseUrl,
+  getOpenRouterModelName,
+  hasOpenRouterApiKey,
+} from "@/lib/ai/openrouter";
 import type { ExtractedJobDetails } from "@/lib/ai/types";
 
 export class InvalidJobExtractionError extends Error {
@@ -10,6 +21,8 @@ export class InvalidJobExtractionError extends Error {
     this.name = "InvalidJobExtractionError";
   }
 }
+
+type ExtractionProvider = "nvidia" | "openrouter";
 
 const extractionSystemInstruction = `
 You extract job posting details for JobFit Copilot.
@@ -29,22 +42,6 @@ const requiredExtractionKeys = [
   "experienceLevel",
   "confidenceNotes",
 ] as const;
-
-const jobExtractionResponseSchema = {
-  type: Type.OBJECT,
-  required: [...requiredExtractionKeys],
-  properties: {
-    jobTitle: { type: Type.STRING },
-    companyName: { type: Type.STRING },
-    sourceUrl: { type: Type.STRING },
-    workType: { type: Type.STRING },
-    salaryRange: { type: Type.STRING },
-    jobPostText: { type: Type.STRING },
-    location: { type: Type.STRING },
-    experienceLevel: { type: Type.STRING },
-    confidenceNotes: { type: Type.STRING },
-  },
-} as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -71,27 +68,6 @@ function logDevDiagnostics(
   }
 
   console.warn(`[job-extraction] ${label}`, details);
-}
-
-function extractModelResponseText(response: unknown): string {
-  const responseObj = asRecord(response);
-
-  if (typeof responseObj?.text === "string") {
-    return responseObj.text;
-  }
-
-  const candidates = Array.isArray(responseObj?.candidates)
-    ? responseObj.candidates
-    : [];
-  const firstCandidate = asRecord(candidates[0]);
-  const content = asRecord(firstCandidate?.content);
-  const parts = Array.isArray(content?.parts) ? content.parts : [];
-  const textParts = parts
-    .map((part) => asRecord(part))
-    .map((part) => (typeof part?.text === "string" ? part.text : ""))
-    .filter(Boolean);
-
-  return textParts.join("\n");
 }
 
 function extractJsonCandidate(rawText: string): string {
@@ -203,67 +179,178 @@ function buildTextExtractionPrompt(jobPostText: string): string {
 Extract job details from this pasted job post.
 Return only valid JSON. No markdown. No comments. No prose outside JSON.
 
+Return strict JSON with this exact shape:
+{
+  "jobTitle": "",
+  "companyName": "",
+  "sourceUrl": "",
+  "workType": "",
+  "salaryRange": "",
+  "jobPostText": "",
+  "location": "",
+  "experienceLevel": "",
+  "confidenceNotes": ""
+}
+
 Job post text:
 ${jobPostText}
 `.trim();
 }
 
-function buildImageExtractionPrompt(): string {
-  return `
-Read this job post screenshot and extract the key job details.
-Return only valid JSON. No markdown. No comments. No prose outside JSON.
-If the screenshot is incomplete, extract only what is visible and explain uncertainty in confidenceNotes.
-`.trim();
+type OpenAiCompatibleChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+    };
+  }>;
+};
+
+function extractOpenAiCompatibleMessageText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const textParts: string[] = [];
+  for (const part of content) {
+    const partObj = asRecord(part);
+    if (!partObj) {
+      continue;
+    }
+
+    if (typeof partObj.text === "string") {
+      textParts.push(partObj.text);
+      continue;
+    }
+
+    if (partObj.type === "text" && typeof partObj.content === "string") {
+      textParts.push(partObj.content);
+    }
+  }
+
+  return textParts.join("\n");
+}
+
+async function generateOpenAiCompatibleExtractionResponseText(input: {
+  jobPostText: string;
+  provider: ExtractionProvider;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}): Promise<string> {
+  const endpoint = `${input.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: input.model,
+      temperature: 0,
+      max_tokens: 2048,
+      messages: [
+        { role: "system", content: extractionSystemInstruction },
+        { role: "user", content: buildTextExtractionPrompt(input.jobPostText) },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const failure = new Error(
+      `${input.provider} request failed with status ${response.status}.`,
+    ) as Error & { status?: number; code?: string };
+    failure.status = response.status;
+    failure.code = `${input.provider}_http_error`;
+    throw failure;
+  }
+
+  const payload = (await response.json()) as OpenAiCompatibleChatCompletionResponse;
+  const firstChoice = payload.choices?.[0];
+  const rawText = extractOpenAiCompatibleMessageText(firstChoice?.message?.content);
+  return rawText.trim();
+}
+
+async function extractFromProvider(input: {
+  provider: ExtractionProvider;
+  jobPostText: string;
+}): Promise<ExtractedJobDetails> {
+  const rawText =
+    input.provider === "nvidia"
+      ? await generateOpenAiCompatibleExtractionResponseText({
+          jobPostText: input.jobPostText,
+          provider: "nvidia",
+          apiKey: getNvidiaApiKey(),
+          baseUrl: getNvidiaBaseUrl(),
+          model: getNvidiaModelName(),
+        })
+      : await generateOpenAiCompatibleExtractionResponseText({
+          jobPostText: input.jobPostText,
+          provider: "openrouter",
+          apiKey: getOpenRouterApiKey(),
+          baseUrl: getOpenRouterBaseUrl(),
+          model: getOpenRouterModelName(),
+        });
+
+  logDevDiagnostics("text_extraction_response_received", {
+    provider: input.provider,
+    responseLength: rawText.length,
+  });
+
+  return normalizeExtraction(rawText, input.jobPostText);
 }
 
 export async function extractJobDetailsFromText(
   jobPostText: string,
 ): Promise<ExtractedJobDetails> {
-  const client = createGeminiClient();
-  const response = await client.models.generateContent({
-    model: getGeminiModelName(),
-    contents: buildTextExtractionPrompt(jobPostText),
-    config: {
-      systemInstruction: extractionSystemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: jobExtractionResponseSchema,
-      temperature: 0,
-      maxOutputTokens: 2048,
-    },
+  const providerFailures: Array<{
+    provider: ExtractionProvider;
+    summary: ReturnType<typeof getAiErrorSummary>;
+  }> = [];
+
+  if (hasNvidiaApiKey()) {
+    try {
+      return await extractFromProvider({
+        provider: "nvidia",
+        jobPostText,
+      });
+    } catch (error) {
+      const summary = getAiErrorSummary(error);
+      providerFailures.push({ provider: "nvidia", summary });
+      logDevDiagnostics("provider_failed", { provider: "nvidia", summary });
+    }
+  } else {
+    logDevDiagnostics("provider_skipped", {
+      provider: "nvidia",
+      reason: "missing_nvidia_api_key",
+    });
+  }
+
+  if (hasOpenRouterApiKey()) {
+    try {
+      return await extractFromProvider({
+        provider: "openrouter",
+        jobPostText,
+      });
+    } catch (error) {
+      const summary = getAiErrorSummary(error);
+      providerFailures.push({ provider: "openrouter", summary });
+      logDevDiagnostics("provider_failed", { provider: "openrouter", summary });
+    }
+  } else {
+    logDevDiagnostics("provider_skipped", {
+      provider: "openrouter",
+      reason: "missing_openrouter_api_key",
+    });
+  }
+
+  logDevDiagnostics("provider_chain_failed", {
+    providerOrder: ["nvidia", "openrouter"],
+    providerFailures,
   });
 
-  const rawText = extractModelResponseText(response).trim();
-  logDevDiagnostics("text_extraction_response_received", {
-    responseLength: rawText.length,
-  });
-
-  return normalizeExtraction(rawText, jobPostText);
-}
-
-export async function extractJobDetailsFromImage(input: {
-  imageBase64: string;
-  mimeType: string;
-}): Promise<ExtractedJobDetails> {
-  const client = createGeminiClient();
-  const response = await client.models.generateContent({
-    model: getGeminiModelName(),
-    contents: [
-      createPartFromText(buildImageExtractionPrompt()),
-      createPartFromBase64(input.imageBase64, input.mimeType),
-    ],
-    config: {
-      systemInstruction: extractionSystemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: jobExtractionResponseSchema,
-      temperature: 0,
-      maxOutputTokens: 2048,
-    },
-  });
-
-  const rawText = extractModelResponseText(response).trim();
-  logDevDiagnostics("image_extraction_response_received", {
-    responseLength: rawText.length,
-  });
-
-  return normalizeExtraction(rawText);
+  throw new InvalidJobExtractionError();
 }
