@@ -26,20 +26,22 @@ Developers often spend too much time decoding long job posts, guessing fit, and 
 - TypeScript
 - Tailwind CSS
 - Supabase Auth + PostgreSQL Database + Row Level Security (RLS)
-- Gemini API via `@google/genai`
+- NVIDIA API (OpenAI-compatible chat completions via `fetch`) for primary text analysis
+- Gemini API via `@google/genai` for fallback text analysis and screenshot extraction
 - pnpm
 
 ## Architecture Overview
 ```text
 User -> Next.js App Router UI -> Server Actions -> Supabase (Auth + Postgres + RLS)
                                          |
-                                         -> Gemini API (@google/genai)
+                                         -> NVIDIA API (primary text analysis)
+                                         -> Gemini API (text fallback + image extraction)
 ```
 
 Flow summary:
 1. Authenticated user creates/updates developer profile.
 2. User submits a job post from `/dashboard/analyze`.
-3. Server action validates input and profile, then calls Gemini.
+3. Server action validates input and profile, then calls NVIDIA first and falls back to Gemini if needed.
 4. Analysis is saved into `jobs`, `job_analysis`, and `generated_applications`.
 5. User reviews results in saved application detail and tracks status.
 
@@ -79,6 +81,9 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 GEMINI_API_KEY=
+NVIDIA_API_KEY=
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MODEL=deepseek-ai/deepseek-v4-pro
 NEXT_PUBLIC_APP_URL=
 ```
 5. Run the MVP schema migration manually in Supabase SQL Editor using:

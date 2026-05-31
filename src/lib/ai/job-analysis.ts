@@ -1,7 +1,14 @@
-﻿import "server-only";
+import "server-only";
 
 import { Type } from "@google/genai";
 import { createGeminiClient, getGeminiModelName } from "@/lib/ai/gemini";
+import { getAiErrorSummary } from "@/lib/ai/error-utils";
+import {
+  getNvidiaApiKey,
+  getNvidiaBaseUrl,
+  getNvidiaModelName,
+  hasNvidiaApiKey,
+} from "@/lib/ai/nvidia";
 import type {
   CandidateProfileForAnalysis,
   JobAnalysisInput,
@@ -27,12 +34,30 @@ export class InvalidAiJsonError extends Error {
   }
 }
 
+export type AnalysisProvider = "nvidia" | "gemini";
+
+export type AnalyzeJobProviderResult = {
+  analysis: JobFitAnalysis;
+  model: string;
+  provider: AnalysisProvider;
+};
+
 class JsonParseFailureError extends InvalidAiJsonError {
   diagnostics: Record<string, unknown>;
 
   constructor(diagnostics: Record<string, unknown>) {
     super();
     this.name = "JsonParseFailureError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+class AnalysisProviderChainError extends Error {
+  diagnostics: Record<string, unknown>;
+
+  constructor(diagnostics: Record<string, unknown>) {
+    super("All AI providers failed.");
+    this.name = "AnalysisProviderChainError";
     this.diagnostics = diagnostics;
   }
 }
@@ -628,7 +653,7 @@ function extractModelResponseText(response: unknown): string {
   return textParts.join("\n");
 }
 
-async function generateAnalysisResponseText(
+async function generateGeminiAnalysisResponseText(
   userPrompt: string,
 ): Promise<string> {
   const client = createGeminiClient();
@@ -664,6 +689,82 @@ async function repairInvalidJsonText(rawResponseText: string): Promise<string> {
   return extractModelResponseText(response).trim();
 }
 
+type NvidiaChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+    };
+  }>;
+};
+
+function extractOpenAiCompatibleMessageText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const textParts: string[] = [];
+
+  for (const part of content) {
+    const partObj = asRecord(part);
+    if (!partObj) {
+      continue;
+    }
+
+    if (typeof partObj.text === "string") {
+      textParts.push(partObj.text);
+      continue;
+    }
+
+    if (partObj.type === "text" && typeof partObj.content === "string") {
+      textParts.push(partObj.content);
+    }
+  }
+
+  return textParts.join("\n");
+}
+
+async function generateNvidiaAnalysisResponseText(
+  userPrompt: string,
+): Promise<string> {
+  const apiKey = getNvidiaApiKey();
+  const endpoint = `${getNvidiaBaseUrl().replace(/\/+$/, "")}/chat/completions`;
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: getNvidiaModelName(),
+      temperature: 0.2,
+      max_tokens: 3072,
+      messages: [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const failure = new Error(
+      `NVIDIA request failed with status ${response.status}.`,
+    ) as Error & { status?: number; code?: string };
+    failure.status = response.status;
+    failure.code = "nvidia_http_error";
+    throw failure;
+  }
+
+  const payload = (await response.json()) as NvidiaChatCompletionResponse;
+  const firstChoice = payload.choices?.[0];
+  const rawText = extractOpenAiCompatibleMessageText(firstChoice?.message?.content);
+  return rawText.trim();
+}
+
 export async function analyzeJobWithGemini(
   profile: CandidateProfileForAnalysis,
   jobInput: JobAnalysisInput,
@@ -677,11 +778,12 @@ export async function analyzeJobWithGemini(
     throw error;
   }
 
-  const rawText = await generateAnalysisResponseText(
+  const rawText = await generateGeminiAnalysisResponseText(
     buildUserPrompt(profile, jobInput),
   );
 
   logDevDiagnostics("raw_response_received", {
+    provider: "gemini",
     responseLength: rawText.length,
   });
 
@@ -696,10 +798,14 @@ export async function analyzeJobWithGemini(
       throw error;
     }
 
-    logDevDiagnostics("primary_json_parse_failed", error.diagnostics);
+    logDevDiagnostics("primary_json_parse_failed", {
+      provider: "gemini",
+      ...error.diagnostics,
+    });
 
     const repairedRawText = await repairInvalidJsonText(rawText);
     logDevDiagnostics("repair_response_received", {
+      provider: "gemini",
       responseLength: repairedRawText.length,
     });
 
@@ -711,10 +817,87 @@ export async function analyzeJobWithGemini(
       return parseAndValidateAnalysis(repairedRawText);
     } catch (repairError) {
       if (repairError instanceof JsonParseFailureError) {
-        logDevDiagnostics("repair_json_parse_failed", repairError.diagnostics);
+        logDevDiagnostics("repair_json_parse_failed", {
+          provider: "gemini",
+          ...repairError.diagnostics,
+        });
       }
 
       throw new InvalidAiJsonError();
     }
   }
+}
+
+async function analyzeJobWithNvidia(
+  profile: CandidateProfileForAnalysis,
+  jobInput: JobAnalysisInput,
+): Promise<JobFitAnalysis> {
+  const rawText = await generateNvidiaAnalysisResponseText(
+    buildUserPrompt(profile, jobInput),
+  );
+
+  logDevDiagnostics("raw_response_received", {
+    provider: "nvidia",
+    responseLength: rawText.length,
+  });
+
+  if (!rawText) {
+    throw new InvalidAiJsonError();
+  }
+
+  return parseAndValidateAnalysis(rawText);
+}
+
+export async function analyzeJobWithProviders(
+  profile: CandidateProfileForAnalysis,
+  jobInput: JobAnalysisInput,
+): Promise<AnalyzeJobProviderResult> {
+  const providerFailures: Array<{
+    provider: AnalysisProvider;
+    summary: ReturnType<typeof getAiErrorSummary>;
+  }> = [];
+
+  if (hasNvidiaApiKey()) {
+    try {
+      const analysis = await analyzeJobWithNvidia(profile, jobInput);
+      return {
+        analysis,
+        provider: "nvidia",
+        model: getNvidiaModelName(),
+      };
+    } catch (error) {
+      const summary = getAiErrorSummary(error);
+      providerFailures.push({ provider: "nvidia", summary });
+      logDevDiagnostics("provider_failed", {
+        provider: "nvidia",
+        summary,
+      });
+    }
+  } else {
+    logDevDiagnostics("provider_skipped", {
+      provider: "nvidia",
+      reason: "missing_nvidia_api_key",
+    });
+  }
+
+  try {
+    const analysis = await analyzeJobWithGemini(profile, jobInput);
+    return {
+      analysis,
+      provider: "gemini",
+      model: getGeminiModelName(),
+    };
+  } catch (error) {
+    const summary = getAiErrorSummary(error);
+    providerFailures.push({ provider: "gemini", summary });
+    logDevDiagnostics("provider_failed", {
+      provider: "gemini",
+      summary,
+    });
+  }
+
+  throw new AnalysisProviderChainError({
+    providerOrder: ["nvidia", "gemini"],
+    providerFailures,
+  });
 }

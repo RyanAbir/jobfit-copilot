@@ -15,12 +15,10 @@ import {
   JobLinkFetchError,
 } from "@/lib/job-link-fetch";
 import {
-  analyzeJobWithGemini,
+  analyzeJobWithProviders,
   InvalidAiJsonError,
-  MissingGeminiApiKeyError,
 } from "@/lib/ai/job-analysis";
 import type { CandidateProfileForAnalysis, JobFitAnalysis } from "@/lib/ai/types";
-import { getGeminiModelName } from "@/lib/ai/gemini";
 import { getAiErrorSummary, isAiQuotaError } from "@/lib/ai/error-utils";
 
 const MAX_JOB_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -299,7 +297,7 @@ export async function submitAnalyzeFormAction(
   };
 
   try {
-    const analysis = await analyzeJobWithGemini(profileForAnalysis, {
+    const analysisResult = await analyzeJobWithProviders(profileForAnalysis, {
       companyName,
       jobTitle,
       sourceUrl,
@@ -307,6 +305,7 @@ export async function submitAnalyzeFormAction(
       salaryRange,
       jobPostText,
     });
+    const analysis = analysisResult.analysis;
 
     const { data: savedJob, error: jobInsertError } = await supabase
       .from("jobs")
@@ -397,7 +396,7 @@ export async function submitAnalyzeFormAction(
     return {
       status: "success",
       message: "Analysis complete. Analysis saved.",
-      model: getGeminiModelName(),
+      model: analysisResult.model,
       analysis,
       saved: {
         jobId: savedJob.id,
@@ -422,17 +421,6 @@ export async function submitAnalyzeFormAction(
       return {
         status: "error",
         message: "AI quota limit reached. Please wait and try again later.",
-      };
-    }
-
-    if (error instanceof MissingGeminiApiKeyError) {
-      logSafeActionDiagnostics("analysis_failed", error, {
-        reason: "missing_gemini_api_key",
-      });
-
-      return {
-        status: "error",
-        message: error.message,
       };
     }
 

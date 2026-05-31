@@ -6,6 +6,7 @@
 - Developer profile create/update flow
 - Job analysis submission from dashboard
 - Gemini-powered analysis pipeline with server-side validation
+- NVIDIA-first text analysis with automatic Gemini fallback
 - Fit score, score breakdown, and recommendation display
 - Required, matched, partially matched, and missing skills display
 - Resume keyword suggestions and generated application email
