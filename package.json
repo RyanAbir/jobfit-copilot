@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "check:secrets": "powershell -NoProfile -Command \"$matches = rg --line-number --color never --glob '!node_modules/**' --glob '!.next/**' --glob '!.git/**' --glob '!.env.example' --glob '!README.md' --glob '!PROJECT_STATUS.md' --glob '!package.json' --regexp 'GEMINI_API_KEY\\s*=\\s*[^\\s\\\"\\'']+' --regexp 'NVIDIA_API_KEY\\s*=\\s*[^\\s\\\"\\'']+' --regexp 'OPENROUTER_API_KEY\\s*=\\s*[^\\s\\\"\\'']+' --regexp 'SUPABASE_SERVICE_ROLE_KEY\\s*=\\s*[^\\s\\\"\\'']+' --regexp 'eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}' --regexp 'sk-[A-Za-z0-9_-]{10,}' --regexp 'nvapi-[A-Za-z0-9_-]{10,}' .; if ($LASTEXITCODE -eq 0) { Write-Output $matches; throw 'Potential secrets found.' } elseif ($LASTEXITCODE -eq 1) { Write-Output 'No potential secrets found.' } else { throw 'Secret scan failed to run.' }\""
+    "check:secrets": "node scripts/check-secrets.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.7.0",
