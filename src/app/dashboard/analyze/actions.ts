@@ -69,6 +69,124 @@ function logSafeActionDiagnostics(
   });
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function collectErrorSignals(error: unknown): {
+  statuses: Array<string | number>;
+  combinedText: string;
+} {
+  const statuses: Array<string | number> = [];
+  const textParts: string[] = [];
+  const queue: unknown[] = [error];
+  const seen = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    if (typeof current === "string") {
+      textParts.push(current);
+      continue;
+    }
+
+    if (current instanceof Error) {
+      textParts.push(current.message);
+    }
+
+    const record = asRecord(current);
+    if (!record) {
+      continue;
+    }
+
+    if (typeof record.status === "string" || typeof record.status === "number") {
+      statuses.push(record.status);
+      textParts.push(String(record.status));
+    }
+
+    if (
+      typeof record.errorStatus === "string" ||
+      typeof record.errorStatus === "number"
+    ) {
+      statuses.push(record.errorStatus);
+      textParts.push(String(record.errorStatus));
+    }
+
+    if (typeof record.code === "string" || typeof record.code === "number") {
+      textParts.push(String(record.code));
+    }
+
+    if (typeof record.message === "string") {
+      textParts.push(record.message);
+    }
+
+    if (typeof record.details === "string") {
+      textParts.push(record.details);
+    }
+
+    if (typeof record.responseText === "string") {
+      textParts.push(record.responseText);
+    }
+
+    if (typeof record.response === "object") {
+      queue.push(record.response);
+    }
+    if (typeof record.error === "object") {
+      queue.push(record.error);
+    }
+    if (typeof record.cause === "object") {
+      queue.push(record.cause);
+    }
+  }
+
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(error);
+  } catch {
+    serialized = "";
+  }
+
+  return {
+    statuses,
+    combinedText: `${textParts.join(" ")} ${serialized}`.toLowerCase(),
+  };
+}
+
+function isAiTemporaryOverloadError(error: unknown): boolean {
+  const { statuses, combinedText } = collectErrorSignals(error);
+  const has503Status = statuses.some((status) => {
+    if (status === 503 || status === "503") {
+      return true;
+    }
+
+    if (typeof status === "string" && status.toUpperCase() === "UNAVAILABLE") {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (has503Status) {
+    return true;
+  }
+
+  return (
+    combinedText.includes("unavailable") ||
+    combinedText.includes("high demand") ||
+    combinedText.includes("try again later") ||
+    combinedText.includes("\"status\":503") ||
+    combinedText.includes("\"errorstatus\":503")
+  );
+}
+
 export async function extractJobDetailsAction(
   _prevState: JobExtractionFormState,
   formData: FormData,
@@ -150,6 +268,17 @@ export async function extractJobDetailsAction(
       return {
         status: "error",
         message: "AI extraction limit reached. Please wait and try again later.",
+      };
+    }
+
+    if (isAiTemporaryOverloadError(error)) {
+      logSafeActionDiagnostics("extraction_failed", error, {
+        reason: "service_temporarily_busy",
+      });
+
+      return {
+        status: "error",
+        message: "AI service is temporarily busy. Please try again shortly.",
       };
     }
 
@@ -388,6 +517,17 @@ export async function submitAnalyzeFormAction(
       return {
         status: "error",
         message: "AI quota limit reached. Please wait and try again later.",
+      };
+    }
+
+    if (isAiTemporaryOverloadError(error)) {
+      logSafeActionDiagnostics("analysis_failed", error, {
+        reason: "service_temporarily_busy",
+      });
+
+      return {
+        status: "error",
+        message: "AI service is temporarily busy. Please try again shortly.",
       };
     }
 
