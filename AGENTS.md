@@ -1,5 +1,38 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# JobFit Copilot - Agent Instructions
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+Work one task at a time.
+
+## Before editing
+
+- Run `git status --short`
+- Inspect only files relevant to the current task
+- Do not scan the whole repo unless necessary
+- Do not rewrite unrelated files
+
+## Project stack
+
+- Next.js App Router
+- React
+- TypeScript
+- Supabase Auth + Database + RLS
+- AI provider: Gemini only
+- pnpm
+
+## Critical rules
+
+- Do not expose API keys
+- Do not log full job post text
+- Do not log resume text
+- Do not log full AI responses
+- Do not log secrets
+- Keep `--webpack` flags in `package.json`
+- Keep Supabase user-scoped access
+- Keep screenshot/image extraction removed
+
+## Validation
+
+Run after changes:
+
+```bash
+pnpm lint
+pnpm build
