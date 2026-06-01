@@ -53,9 +53,19 @@ Rules:
 - Do not encourage auto-apply, spam, scraping, or mass-application behavior.
 - Keep outputs practical, concise, and ethical.
 - Use the exact schema requested.
-- scoreExplanation must be 2-4 sentences.
-- generatedApplicationEmail must be concise.
-- interviewPreparationQuestions must contain at most 5 items.
+- requiredSkills must contain at most 5 items.
+- niceToHaveSkills must contain at most 5 items.
+- responsibilities must contain at most 5 items.
+- redFlags must contain at most 3 items.
+- matchedSkills must contain at most 5 items.
+- partiallyMatchedSkills must contain at most 5 items.
+- missingSkills must contain at most 5 items.
+- relevantProjects must contain at most 3 items.
+- weakAreas must contain at most 3 items.
+- interviewPreparationQuestions must contain at most 3 items.
+- Each resumeKeywordSuggestions category must contain at most 3 items.
+- generatedApplicationEmail must be under 120 words.
+- scoreExplanation must be at most 2 sentences.
 `.trim();
 
 const requiredTopLevelKeys = [
@@ -226,10 +236,42 @@ function normalizeMatchLabel(score: number, label: unknown): MatchLabel {
 function parseResumeKeywords(value: unknown): ResumeKeywordSuggestions {
   const obj = asRecord(value);
   return {
-    frontend: asStringArray(obj?.frontend), backend: asStringArray(obj?.backend), database: asStringArray(obj?.database),
-    authentication: asStringArray(obj?.authentication), payment: asStringArray(obj?.payment), deployment: asStringArray(obj?.deployment),
-    testing: asStringArray(obj?.testing), softSkills: asStringArray(obj?.softSkills),
+    frontend: asStringArray(obj?.frontend).slice(0, 3),
+    backend: asStringArray(obj?.backend).slice(0, 3),
+    database: asStringArray(obj?.database).slice(0, 3),
+    authentication: asStringArray(obj?.authentication).slice(0, 3),
+    payment: asStringArray(obj?.payment).slice(0, 3),
+    deployment: asStringArray(obj?.deployment).slice(0, 3),
+    testing: asStringArray(obj?.testing).slice(0, 3),
+    softSkills: asStringArray(obj?.softSkills).slice(0, 3),
   };
+}
+
+function limitWords(value: string, maxWords: number): string {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) {
+    return value.trim();
+  }
+
+  return words.slice(0, maxWords).join(" ").trim();
+}
+
+function limitSentences(value: string, maxSentences: number): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const sentenceMatches = trimmed.match(/[^.!?]+[.!?]*/g) ?? [];
+  const cleanedSentences = sentenceMatches
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  if (cleanedSentences.length <= maxSentences) {
+    return trimmed;
+  }
+
+  return cleanedSentences.slice(0, maxSentences).join(" ").trim();
 }
 
 function parseScoreBreakdown(value: unknown): ScoreBreakdown {
@@ -317,26 +359,29 @@ function parseAndValidateAnalysis(rawText: string): JobFitAnalysis {
   return {
     jobTitle: asString(obj.jobTitle, "Not specified"),
     companyName: asString(obj.companyName, "Not specified"),
-    requiredSkills: asStringArray(obj.requiredSkills),
-    niceToHaveSkills: asStringArray(obj.niceToHaveSkills),
-    responsibilities: asStringArray(obj.responsibilities),
+    requiredSkills: asStringArray(obj.requiredSkills).slice(0, 5),
+    niceToHaveSkills: asStringArray(obj.niceToHaveSkills).slice(0, 5),
+    responsibilities: asStringArray(obj.responsibilities).slice(0, 5),
     experienceLevel: asString(obj.experienceLevel, "Not specified"),
     workType: asString(obj.workType, asString(obj.extractedWorkType, "Not specified")),
     location: asString(obj.location, asString(obj.extractedLocation, "Not specified")),
-    redFlags: asStringArray(obj.redFlags),
-    matchedSkills: asStringArray(obj.matchedSkills),
-    partiallyMatchedSkills: asStringArray(obj.partiallyMatchedSkills),
-    missingSkills: asStringArray(obj.missingSkills),
-    relevantProjects: asStringArray(obj.relevantProjects),
-    weakAreas: asStringArray(obj.weakAreas),
+    redFlags: asStringArray(obj.redFlags).slice(0, 3),
+    matchedSkills: asStringArray(obj.matchedSkills).slice(0, 5),
+    partiallyMatchedSkills: asStringArray(obj.partiallyMatchedSkills).slice(0, 5),
+    missingSkills: asStringArray(obj.missingSkills).slice(0, 5),
+    relevantProjects: asStringArray(obj.relevantProjects).slice(0, 3),
+    weakAreas: asStringArray(obj.weakAreas).slice(0, 3),
     resumeKeywordSuggestions: parseResumeKeywords(obj.resumeKeywordSuggestions),
     generatedEmailSubject: asString(obj.generatedEmailSubject, "Application for this role"),
-    generatedApplicationEmail: asString(obj.generatedApplicationEmail),
-    interviewPreparationQuestions: asStringArray(obj.interviewPreparationQuestions).slice(0, 5),
+    generatedApplicationEmail: limitWords(
+      asString(obj.generatedApplicationEmail),
+      120,
+    ),
+    interviewPreparationQuestions: asStringArray(obj.interviewPreparationQuestions).slice(0, 3),
     scoreBreakdown,
     finalScore,
     matchLabel: normalizeMatchLabel(finalScore, obj.matchLabel),
-    scoreExplanation: asString(obj.scoreExplanation),
+    scoreExplanation: limitSentences(asString(obj.scoreExplanation), 2),
   };
 }
 
