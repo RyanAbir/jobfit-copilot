@@ -6,7 +6,7 @@ import type {
   JobExtractionFormState,
 } from "@/app/dashboard/analyze/form-state";
 import {
-  extractJobDetailsFromText,
+  extractJobDetailsWithGemini,
   InvalidJobExtractionError,
 } from "@/lib/ai/job-extraction";
 import {
@@ -14,11 +14,11 @@ import {
   JobLinkFetchError,
 } from "@/lib/job-link-fetch";
 import {
-  analyzeJobWithProviders,
+  analyzeJobWithGemini,
   InvalidAiJsonError,
 } from "@/lib/ai/job-analysis";
 import type { CandidateProfileForAnalysis, JobFitAnalysis } from "@/lib/ai/types";
-import { getAiErrorSummary } from "@/lib/ai/error-utils";
+import { getAiErrorSummary, isAiQuotaError } from "@/lib/ai/error-utils";
 
 function getTextValue(formData: FormData, key: string): string {
   const value = formData.get(key);
@@ -101,10 +101,10 @@ export async function extractJobDetailsAction(
     let details;
 
     if (jobTextInput) {
-      details = await extractJobDetailsFromText(jobTextInput);
+      details = await extractJobDetailsWithGemini(jobTextInput);
     } else {
       const fetchedJobLink = await fetchReadableJobLinkText(jobUrlInput);
-      const extractedDetails = await extractJobDetailsFromText(
+      const extractedDetails = await extractJobDetailsWithGemini(
         fetchedJobLink.readableText,
       );
 
@@ -138,7 +138,18 @@ export async function extractJobDetailsAction(
       });
       return {
         status: "error",
-        message: error.message,
+        message: "Could not extract job details. Please paste the job post manually.",
+      };
+    }
+
+    if (isAiQuotaError(error)) {
+      logSafeActionDiagnostics("extraction_failed", error, {
+        reason: "quota_or_rate_limited",
+      });
+
+      return {
+        status: "error",
+        message: "AI extraction limit reached. Please wait and try again later.",
       };
     }
 
@@ -242,7 +253,7 @@ export async function submitAnalyzeFormAction(
   };
 
   try {
-    const analysisResult = await analyzeJobWithProviders(profileForAnalysis, {
+    const analysisResult = await analyzeJobWithGemini(profileForAnalysis, {
       companyName,
       jobTitle,
       sourceUrl,
@@ -366,6 +377,17 @@ export async function submitAnalyzeFormAction(
       return {
         status: "error",
         message: error.message,
+      };
+    }
+
+    if (isAiQuotaError(error)) {
+      logSafeActionDiagnostics("analysis_failed", error, {
+        reason: "quota_or_rate_limited",
+      });
+
+      return {
+        status: "error",
+        message: "AI quota limit reached. Please wait and try again later.",
       };
     }
 

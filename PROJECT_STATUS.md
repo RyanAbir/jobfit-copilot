@@ -5,7 +5,7 @@
 - Protected dashboard routes
 - Developer profile create/update flow
 - Job analysis submission from dashboard
-- NVIDIA-first AI pipeline with OpenRouter fallback for text extraction and final analysis
+- Gemini-only AI pipeline for text extraction and final analysis
 - Fit score, score breakdown, and recommendation display
 - Required, matched, partially matched, and missing skills display
 - Resume keyword suggestions and generated application email
@@ -20,6 +20,7 @@
 - No browser extension/manual autofill helper yet
 - No advanced analytics/history timeline yet
 - Screenshot extraction is removed; extraction is text/link only
+- Gemini quota/rate limits can temporarily block extraction/analysis
 - Screenshot assets and live demo media are still placeholders
 
 ## Next Steps

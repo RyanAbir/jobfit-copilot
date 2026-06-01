@@ -1,18 +1,10 @@
 import "server-only";
 
-import { getAiErrorSummary } from "@/lib/ai/error-utils";
 import {
-  getNvidiaApiKey,
-  getNvidiaBaseUrl,
-  getNvidiaModelName,
-  hasNvidiaApiKey,
-} from "@/lib/ai/nvidia";
-import {
-  getOpenRouterApiKey,
-  getOpenRouterBaseUrl,
-  getOpenRouterModelName,
-  hasOpenRouterApiKey,
-} from "@/lib/ai/openrouter";
+  GeminiType,
+  generateGeminiJson,
+  repairGeminiJson,
+} from "@/lib/ai/gemini";
 import type { ExtractedJobDetails } from "@/lib/ai/types";
 
 export class InvalidJobExtractionError extends Error {
@@ -21,8 +13,6 @@ export class InvalidJobExtractionError extends Error {
     this.name = "InvalidJobExtractionError";
   }
 }
-
-type ExtractionProvider = "nvidia" | "openrouter";
 
 const extractionSystemInstruction = `
 You extract job posting details for JobFit Copilot.
@@ -43,11 +33,24 @@ const requiredExtractionKeys = [
   "confidenceNotes",
 ] as const;
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
+const extractionResponseSchema = {
+  type: GeminiType.OBJECT,
+  required: [...requiredExtractionKeys],
+  properties: {
+    jobTitle: { type: GeminiType.STRING },
+    companyName: { type: GeminiType.STRING },
+    sourceUrl: { type: GeminiType.STRING },
+    workType: { type: GeminiType.STRING },
+    salaryRange: { type: GeminiType.STRING },
+    jobPostText: { type: GeminiType.STRING },
+    location: { type: GeminiType.STRING },
+    experienceLevel: { type: GeminiType.STRING },
+    confidenceNotes: { type: GeminiType.STRING },
+  },
+} as const;
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
 
@@ -59,28 +62,17 @@ function isDevelopmentEnvironment(): boolean {
   return process.env.NODE_ENV !== "production";
 }
 
-function logDevDiagnostics(
-  label: string,
-  details: Record<string, unknown>,
-): void {
-  if (!isDevelopmentEnvironment()) {
-    return;
-  }
-
+function logDevDiagnostics(label: string, details: Record<string, unknown>): void {
+  if (!isDevelopmentEnvironment()) return;
   console.warn(`[job-extraction] ${label}`, details);
 }
 
 function extractJsonCandidate(rawText: string): string {
   const trimmed = rawText.trim();
-
-  if (!trimmed) {
-    return "";
-  }
+  if (!trimmed) return "";
 
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
+  if (fencedMatch?.[1]) return fencedMatch[1].trim();
 
   return trimmed;
 }
@@ -89,18 +81,14 @@ function parseJsonObjectFromText(rawText: string): Record<string, unknown> {
   const candidate = extractJsonCandidate(rawText);
 
   if (!candidate.trim()) {
-    logDevDiagnostics("json_candidate_empty", {
-      responseLength: rawText.length,
-    });
+    logDevDiagnostics("json_candidate_empty", { responseLength: rawText.length });
     throw new InvalidJobExtractionError();
   }
 
   try {
     const parsed = JSON.parse(candidate);
     const obj = asRecord(parsed);
-    if (!obj) {
-      throw new InvalidJobExtractionError();
-    }
+    if (!obj) throw new InvalidJobExtractionError();
     return obj;
   } catch (candidateError) {
     const firstBrace = candidate.indexOf("{");
@@ -111,9 +99,7 @@ function parseJsonObjectFromText(rawText: string): Record<string, unknown> {
       try {
         const parsed = JSON.parse(sliced);
         const obj = asRecord(parsed);
-        if (!obj) {
-          throw new InvalidJobExtractionError();
-        }
+        if (!obj) throw new InvalidJobExtractionError();
         return obj;
       } catch (slicedError) {
         logDevDiagnostics("json_parse_failed", {
@@ -125,9 +111,7 @@ function parseJsonObjectFromText(rawText: string): Record<string, unknown> {
               ? candidateError.message
               : "unknown_parse_error",
           slicedParseMessage:
-            slicedError instanceof Error
-              ? slicedError.message
-              : "unknown_parse_error",
+            slicedError instanceof Error ? slicedError.message : "unknown_parse_error",
         });
         throw new InvalidJobExtractionError();
       }
@@ -145,14 +129,9 @@ function parseJsonObjectFromText(rawText: string): Record<string, unknown> {
   }
 }
 
-function normalizeExtraction(
-  rawText: string,
-  fallbackJobPostText = "",
-): ExtractedJobDetails {
+function normalizeExtraction(rawText: string, fallbackJobPostText = ""): ExtractedJobDetails {
   const obj = parseJsonObjectFromText(rawText);
-  const missingTopLevelKeys = requiredExtractionKeys.filter(
-    (key) => !(key in obj),
-  );
+  const missingTopLevelKeys = requiredExtractionKeys.filter((key) => !(key in obj));
 
   if (missingTopLevelKeys.length > 0) {
     logDevDiagnostics("shape_diagnostics", {
@@ -197,160 +176,40 @@ ${jobPostText}
 `.trim();
 }
 
-type OpenAiCompatibleChatCompletionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: unknown;
-    };
-  }>;
-};
+async function parseWithRepair(rawText: string, fallbackJobPostText: string): Promise<ExtractedJobDetails> {
+  try {
+    return normalizeExtraction(rawText, fallbackJobPostText);
+  } catch {
+    const repairedText = await repairGeminiJson({
+      invalidJsonText: rawText,
+      responseSchema: extractionResponseSchema as unknown as Record<string, unknown>,
+    });
 
-function extractOpenAiCompatibleMessageText(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  const textParts: string[] = [];
-  for (const part of content) {
-    const partObj = asRecord(part);
-    if (!partObj) {
-      continue;
+    if (!repairedText) {
+      throw new InvalidJobExtractionError();
     }
 
-    if (typeof partObj.text === "string") {
-      textParts.push(partObj.text);
-      continue;
-    }
-
-    if (partObj.type === "text" && typeof partObj.content === "string") {
-      textParts.push(partObj.content);
-    }
+    return normalizeExtraction(repairedText, fallbackJobPostText);
   }
-
-  return textParts.join("\n");
 }
 
-async function generateOpenAiCompatibleExtractionResponseText(input: {
-  jobPostText: string;
-  provider: ExtractionProvider;
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-}): Promise<string> {
-  const endpoint = `${input.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${input.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: 0,
-      max_tokens: 2048,
-      messages: [
-        { role: "system", content: extractionSystemInstruction },
-        { role: "user", content: buildTextExtractionPrompt(input.jobPostText) },
-      ],
-    }),
+export async function extractJobDetailsWithGemini(jobPostText: string): Promise<ExtractedJobDetails> {
+  const rawText = await generateGeminiJson({
+    systemInstruction: extractionSystemInstruction,
+    prompt: buildTextExtractionPrompt(jobPostText),
+    responseSchema: extractionResponseSchema as unknown as Record<string, unknown>,
+    temperature: 0,
+    maxOutputTokens: 2048,
   });
 
-  if (!response.ok) {
-    const failure = new Error(
-      `${input.provider} request failed with status ${response.status}.`,
-    ) as Error & { status?: number; code?: string };
-    failure.status = response.status;
-    failure.code = `${input.provider}_http_error`;
-    throw failure;
-  }
-
-  const payload = (await response.json()) as OpenAiCompatibleChatCompletionResponse;
-  const firstChoice = payload.choices?.[0];
-  const rawText = extractOpenAiCompatibleMessageText(firstChoice?.message?.content);
-  return rawText.trim();
-}
-
-async function extractFromProvider(input: {
-  provider: ExtractionProvider;
-  jobPostText: string;
-}): Promise<ExtractedJobDetails> {
-  const rawText =
-    input.provider === "nvidia"
-      ? await generateOpenAiCompatibleExtractionResponseText({
-          jobPostText: input.jobPostText,
-          provider: "nvidia",
-          apiKey: getNvidiaApiKey(),
-          baseUrl: getNvidiaBaseUrl(),
-          model: getNvidiaModelName(),
-        })
-      : await generateOpenAiCompatibleExtractionResponseText({
-          jobPostText: input.jobPostText,
-          provider: "openrouter",
-          apiKey: getOpenRouterApiKey(),
-          baseUrl: getOpenRouterBaseUrl(),
-          model: getOpenRouterModelName(),
-        });
-
   logDevDiagnostics("text_extraction_response_received", {
-    provider: input.provider,
+    provider: "gemini",
     responseLength: rawText.length,
   });
 
-  return normalizeExtraction(rawText, input.jobPostText);
-}
-
-export async function extractJobDetailsFromText(
-  jobPostText: string,
-): Promise<ExtractedJobDetails> {
-  const providerFailures: Array<{
-    provider: ExtractionProvider;
-    summary: ReturnType<typeof getAiErrorSummary>;
-  }> = [];
-
-  if (hasNvidiaApiKey()) {
-    try {
-      return await extractFromProvider({
-        provider: "nvidia",
-        jobPostText,
-      });
-    } catch (error) {
-      const summary = getAiErrorSummary(error);
-      providerFailures.push({ provider: "nvidia", summary });
-      logDevDiagnostics("provider_failed", { provider: "nvidia", summary });
-    }
-  } else {
-    logDevDiagnostics("provider_skipped", {
-      provider: "nvidia",
-      reason: "missing_nvidia_api_key",
-    });
+  if (!rawText) {
+    throw new InvalidJobExtractionError();
   }
 
-  if (hasOpenRouterApiKey()) {
-    try {
-      return await extractFromProvider({
-        provider: "openrouter",
-        jobPostText,
-      });
-    } catch (error) {
-      const summary = getAiErrorSummary(error);
-      providerFailures.push({ provider: "openrouter", summary });
-      logDevDiagnostics("provider_failed", { provider: "openrouter", summary });
-    }
-  } else {
-    logDevDiagnostics("provider_skipped", {
-      provider: "openrouter",
-      reason: "missing_openrouter_api_key",
-    });
-  }
-
-  logDevDiagnostics("provider_chain_failed", {
-    providerOrder: ["nvidia", "openrouter"],
-    providerFailures,
-  });
-
-  throw new InvalidJobExtractionError();
+  return parseWithRepair(rawText, jobPostText);
 }
