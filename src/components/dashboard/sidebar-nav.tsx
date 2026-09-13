@@ -8,6 +8,8 @@ const navItems = [
   { href: "/dashboard/profile", label: "Profile" },
   { href: "/dashboard/analyze", label: "Analyze Job" },
   { href: "/dashboard/applications", label: "Applications" },
+  { href: "/dashboard/analytics", label: "Analytics" },
+  { href: "/resume", label: "Resume" },
 ];
 
 function getIsActive(pathname: string, href: string) {

@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import CopyButton from "@/components/ui/copy-button";
+import KeywordOptimizer from "@/components/applications/keyword-optimizer";
 import ApplicationStatusForm from "@/components/applications/application-status-form";
 import { updateApplicationStatusAction } from "@/app/dashboard/applications/[jobId]/actions";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
@@ -195,20 +197,8 @@ export default async function ApplicationDetailPage({
 
   const resumeKeywordGroups = parseResumeKeywordGroups(analysis?.raw_ai_response);
   const weakAreas = parseWeakAreas(analysis?.raw_ai_response);
-  const groupedKeywordsForCopy = [
-    ...resumeKeywordGroups.frontend,
-    ...resumeKeywordGroups.backend,
-    ...resumeKeywordGroups.database,
-    ...resumeKeywordGroups.authentication,
-    ...resumeKeywordGroups.payment,
-    ...resumeKeywordGroups.deployment,
-    ...resumeKeywordGroups.testing,
-    ...resumeKeywordGroups.softSkills,
-  ];
-  const fallbackKeywords = asStringArray(generated?.resume_keywords);
-  const keywordCopyText = (
-    groupedKeywordsForCopy.length > 0 ? groupedKeywordsForCopy : fallbackKeywords
-  ).join(", ");
+  const missingSkillsList = asStringArray(analysis?.missing_skills);
+  const requiredSkillsList = asStringArray(analysis?.required_skills);
 
   return (
     <section className="space-y-5">
@@ -333,84 +323,31 @@ export default async function ApplicationDetailPage({
           title="Red flags"
           items={listOrFallback(asStringArray(analysis?.red_flags))}
         />
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-900">
-              Resume keyword suggestions
-            </h4>
-            <CopyButton
-              value={keywordCopyText}
-              label="Copy keywords"
-            />
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Frontend
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.frontend.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Backend
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.backend.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Database
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.database.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Authentication
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.authentication.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Payment
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.payment.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Deployment
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.deployment.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Testing
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.testing.join(", ") || "No suggestions"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Soft skills
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {resumeKeywordGroups.softSkills.join(", ") || "No suggestions"}
-              </p>
-            </div>
-          </div>
-        </section>
       </div>
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-blue-900">
+            Tailored resume for this role
+          </h4>
+          <p className="mt-1 text-xs text-blue-800">
+            Generate a print-ready resume that leads with the skills this job
+            matched and folds in the recommended keywords.
+          </p>
+        </div>
+        <Link
+          href={`/resume/${job.id}`}
+          className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+        >
+          Open tailored resume
+        </Link>
+      </div>
+
+      <KeywordOptimizer
+        groups={resumeKeywordGroups}
+        missingSkills={missingSkillsList}
+        requiredSkills={requiredSkillsList}
+      />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between gap-3">
