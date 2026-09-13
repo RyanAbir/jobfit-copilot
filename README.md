@@ -15,10 +15,13 @@ Developers often spend too much time decoding long job posts, guessing fit, and 
 - Gemini-based job detail extraction and fit score analysis
 - Required and missing skills extraction
 - Resume keyword suggestions
+- Interactive resume keyword optimizer (ATS coverage %, priority keywords, copy the gap)
 - Generated application email
 - Saved applications
 - Application status tracking
 - Dashboard metrics (total analyzed, strong matches, draft, applied)
+- Analytics & Insights (trends over time, fit-score distribution, status breakdown, top missing skills)
+- PDF resume export from your profile, plus a per-job tailored resume
 
 ## Tech Stack
 - Next.js 16 (App Router)
@@ -42,6 +45,7 @@ Flow summary:
 3. Server action validates input and profile, then calls Gemini for extraction/analysis.
 4. Analysis is saved into `jobs`, `job_analysis`, and `generated_applications`.
 5. User reviews results in saved application detail and tracks status.
+6. Insights aggregate saved analyses; resumes render from profile (and optionally a job's analysis) for print-to-PDF.
 
 ## Database Tables
 Core MVP tables:
@@ -52,6 +56,8 @@ Core MVP tables:
 
 Schema and policies are defined in:
 - `supabase/migrations/001_mvp_schema.sql`
+
+> The analytics, keyword optimizer, and resume features read existing data only — no additional migration is required.
 
 ## Routes
 Public routes:
@@ -65,6 +71,9 @@ Protected routes:
 - `/dashboard/analyze`
 - `/dashboard/applications`
 - `/dashboard/applications/[jobId]`
+- `/dashboard/analytics`
+- `/resume`
+- `/resume/[jobId]`
 
 ## Local Setup
 1. Clone the repository.
@@ -118,17 +127,21 @@ Completed:
 - Text/link job detail extraction
 - Fit score, skills match/missing, red flags, and recommendation display
 - Generated application email and resume keyword suggestions
+- Interactive resume keyword optimizer
 - Saved applications list and detailed application view
 - Application status updates with ownership checks
 - Dashboard summary metrics and recent applications table
+- Analytics & Insights page
+- PDF resume export (profile and per-job tailored)
+- Loading skeletons and error-retry states across dashboard routes
 
 In progress / polish:
 - Documentation and portfolio presentation assets (screenshots/demo)
 - Additional UX polish and broader manual QA coverage
 
 ## Future Roadmap
-- PDF resume generator
-- Resume keyword optimizer improvements
+- Server-side PDF rendering option for pixel-consistent exports
+- Resume keyword optimizer scoring improvements
 - Browser extension / manual autofill helper
 - Allowed job-board integrations only
-- Analytics and application history insights
+- Longer-range analytics and application history insights
