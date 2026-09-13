@@ -91,6 +91,32 @@ export default async function TailoredResumePage({
     analysisData?.raw_ai_response,
   );
 
+  const [
+    { data: experiences },
+    { data: education },
+    { data: projects },
+  ] = await Promise.all([
+    supabase
+      .from("work_experiences")
+      .select(
+        "company,title,location,start_date,end_date,is_current,description",
+      )
+      .eq("user_id", user.id)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("education")
+      .select(
+        "institution,degree,field_of_study,start_date,end_date,is_current,description",
+      )
+      .eq("user_id", user.id)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("profile_projects")
+      .select("name,url,description,tech_stack")
+      .eq("user_id", user.id)
+      .order("sort_order", { ascending: true }),
+  ]);
+
   const resumeData = buildTailoredResumeData(
     profileData as ProfileRecord,
     user.email ?? "",
@@ -100,6 +126,11 @@ export default async function TailoredResumePage({
       matchedSkills,
       partiallyMatchedSkills,
       recommendedKeywords,
+    },
+    {
+      experiences: experiences ?? [],
+      education: education ?? [],
+      projects: projects ?? [],
     },
   );
 

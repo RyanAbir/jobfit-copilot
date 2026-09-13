@@ -19,6 +19,61 @@ export type ResumeContactLink = {
   href?: string;
 };
 
+export type ResumeExperience = {
+  title: string;
+  company: string;
+  location: string;
+  dateRange: string;
+  description: string;
+};
+
+export type ResumeEducation = {
+  institution: string;
+  degree: string;
+  dateRange: string;
+  description: string;
+};
+
+export type ResumeProject = {
+  name: string;
+  url: string;
+  tech: string;
+  description: string;
+};
+
+export type WorkExperienceRecord = {
+  company: string | null;
+  title: string | null;
+  location: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean | null;
+  description: string | null;
+};
+
+export type EducationRecord = {
+  institution: string | null;
+  degree: string | null;
+  field_of_study: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean | null;
+  description: string | null;
+};
+
+export type ProjectRecord = {
+  name: string | null;
+  url: string | null;
+  description: string | null;
+  tech_stack: string[] | null;
+};
+
+export type StructuredProfileInput = {
+  experiences?: WorkExperienceRecord[];
+  education?: EducationRecord[];
+  projects?: ProjectRecord[];
+};
+
 export type ResumeData = {
   name: string;
   role: string;
@@ -31,6 +86,9 @@ export type ResumeData = {
   recommendedKeywords: string[];
   projects: string;
   experienceDetail: string;
+  experiences: ResumeExperience[];
+  educationItems: ResumeEducation[];
+  projectItems: ResumeProject[];
   tailoredFor?: {
     jobTitle: string;
     companyName: string;
@@ -119,9 +177,95 @@ function orderByPriority(skills: string[], priority: string[]): string[] {
   return [...matched, ...rest];
 }
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function formatMonth(value: string | null | undefined): string {
+  const v = clean(value);
+  const match = v.match(/^(\d{4})-(\d{2})/);
+  if (!match) return "";
+  const year = match[1];
+  const monthIndex = Number(match[2]) - 1;
+  const monthLabel = MONTHS[monthIndex] ?? "";
+  return monthLabel ? `${monthLabel} ${year}` : year;
+}
+
+function dateRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  isCurrent: boolean | null | undefined,
+): string {
+  const startLabel = formatMonth(start);
+  const endLabel = isCurrent ? "Present" : formatMonth(end);
+  if (startLabel && endLabel) return `${startLabel} – ${endLabel}`;
+  return startLabel || endLabel || "";
+}
+
+function mapExperiences(
+  records: WorkExperienceRecord[] | undefined,
+): ResumeExperience[] {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => ({
+      title: clean(record.title),
+      company: clean(record.company),
+      location: clean(record.location),
+      dateRange: dateRange(record.start_date, record.end_date, record.is_current),
+      description: clean(record.description),
+    }))
+    .filter((item) => item.title || item.company);
+}
+
+function mapEducation(
+  records: EducationRecord[] | undefined,
+): ResumeEducation[] {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => {
+      const degree = clean(record.degree);
+      const field = clean(record.field_of_study);
+      return {
+        institution: clean(record.institution),
+        degree: [degree, field].filter(Boolean).join(", "),
+        dateRange: dateRange(
+          record.start_date,
+          record.end_date,
+          record.is_current,
+        ),
+        description: clean(record.description),
+      };
+    })
+    .filter((item) => item.institution || item.degree);
+}
+
+function mapProjects(records: ProjectRecord[] | undefined): ResumeProject[] {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => ({
+      name: clean(record.name),
+      url: clean(record.url),
+      tech: cleanArray(record.tech_stack).join(", "),
+      description: clean(record.description),
+    }))
+    .filter((item) => item.name);
+}
+
 export function buildResumeData(
   profile: ProfileRecord,
   email: string,
+  structured?: StructuredProfileInput,
 ): ResumeData {
   const skills = cleanArray(profile.skills);
   const stack = cleanArray(profile.main_tech_stack);
@@ -139,6 +283,9 @@ export function buildResumeData(
     recommendedKeywords: [],
     projects: clean(profile.projects),
     experienceDetail: clean(profile.resume_text),
+    experiences: mapExperiences(structured?.experiences),
+    educationItems: mapEducation(structured?.education),
+    projectItems: mapProjects(structured?.projects),
   };
 }
 
@@ -154,8 +301,9 @@ export function buildTailoredResumeData(
   profile: ProfileRecord,
   email: string,
   tailoring: TailoringInput,
+  structured?: StructuredProfileInput,
 ): ResumeData {
-  const base = buildResumeData(profile, email);
+  const base = buildResumeData(profile, email, structured);
 
   const matched = cleanArray(tailoring.matchedSkills);
   const partial = cleanArray(tailoring.partiallyMatchedSkills);

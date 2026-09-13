@@ -125,15 +125,102 @@ export default function ResumeDocument({ data }: { data: ResumeData }) {
         </Section>
       ) : null}
 
-      {data.projects ? (
+      {data.experiences.length > 0 ? (
+        <Section title="Experience">
+          <div className="space-y-3">
+            {data.experiences.map((exp, index) => (
+              <div key={index}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {exp.title}
+                    {exp.company ? ` · ${exp.company}` : ""}
+                  </p>
+                  {exp.dateRange ? (
+                    <p className="text-xs text-slate-500">{exp.dateRange}</p>
+                  ) : null}
+                </div>
+                {exp.location ? (
+                  <p className="text-xs text-slate-500">{exp.location}</p>
+                ) : null}
+                {exp.description ? (
+                  <div className="mt-1">
+                    <TextBlocks text={exp.description} />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </Section>
+      ) : data.experienceDetail ? (
+        <Section title="Experience">
+          <TextBlocks text={data.experienceDetail} />
+        </Section>
+      ) : null}
+
+      {data.projectItems.length > 0 ? (
+        <Section title="Projects">
+          <div className="space-y-3">
+            {data.projectItems.map((proj, index) => (
+              <div key={index}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {proj.name}
+                  </p>
+                  {proj.url ? (
+                    <a
+                      href={
+                        /^https?:\/\//i.test(proj.url)
+                          ? proj.url
+                          : `https://${proj.url}`
+                      }
+                      className="text-xs text-slate-500 underline-offset-2 hover:underline"
+                    >
+                      {proj.url.replace(/^https?:\/\//i, "")}
+                    </a>
+                  ) : null}
+                </div>
+                {proj.tech ? (
+                  <p className="text-xs text-slate-500">{proj.tech}</p>
+                ) : null}
+                {proj.description ? (
+                  <div className="mt-1">
+                    <TextBlocks text={proj.description} />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </Section>
+      ) : data.projects ? (
         <Section title="Projects">
           <TextBlocks text={data.projects} />
         </Section>
       ) : null}
 
-      {data.experienceDetail ? (
-        <Section title="Experience & Details">
-          <TextBlocks text={data.experienceDetail} />
+      {data.educationItems.length > 0 ? (
+        <Section title="Education">
+          <div className="space-y-3">
+            {data.educationItems.map((edu, index) => (
+              <div key={index}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {edu.degree || edu.institution}
+                  </p>
+                  {edu.dateRange ? (
+                    <p className="text-xs text-slate-500">{edu.dateRange}</p>
+                  ) : null}
+                </div>
+                {edu.degree && edu.institution ? (
+                  <p className="text-xs text-slate-500">{edu.institution}</p>
+                ) : null}
+                {edu.description ? (
+                  <div className="mt-1">
+                    <TextBlocks text={edu.description} />
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </Section>
       ) : null}
 
