@@ -8,6 +8,7 @@ const navItems = [
   { href: "/dashboard/profile", label: "Profile" },
   { href: "/dashboard/analyze", label: "Analyze Job" },
   { href: "/dashboard/applications", label: "Applications" },
+  { href: "/dashboard/search", label: "Search & Sources" },
   { href: "/dashboard/analytics", label: "Analytics" },
   { href: "/resume", label: "Resume" },
 ];
